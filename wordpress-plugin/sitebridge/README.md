@@ -1,6 +1,8 @@
-# SiteBridge WordPress Plugin 0.2.0
+# SiteBridge WordPress Plugin 0.3.0
 
-Browser approval support is now included. Install the plugin on each WordPress website, enable the desired capabilities under **Settings → SiteBridge**, and connect through the updated SiteBridge Hub. Your agent returns a temporary approval link; sign in as an administrator, review the hub URL and permissions, and approve. Manual API key creation still works.
+Browser approval support is now included. Install the plugin on each WordPress website, enable the desired capabilities under **Settings → SiteBridge**, and connect through the updated SiteBridge Hub. Your agent returns a temporary approval link; sign in as an administrator, review the connection, and approve. Manual API key creation still works.
+
+The approval screen has no permission checkboxes. It uses the access already enabled in Settings → SiteBridge and offers Approve or Cancel. The login, approval and completion screens share the SiteBridge design.
 
 Browser connections receive separate scoped keys. Revoke them under **Settings → SiteBridge → Connected AI clients and API keys**. Disabled global capabilities remain disabled and cannot be granted by an approval link. Start with read access only.
 

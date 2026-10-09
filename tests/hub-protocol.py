@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory(prefix='sbh-http-') as work:
     web = work/'web'; private = work/'private'; private.mkdir()
     hub = ROOT/'sitebridge-hub' if (ROOT/'sitebridge-hub').is_dir() else ROOT
     web.mkdir()
-    for name in ['index.php', 'connections.php', '.htaccess']:
+    for name in ['index.php', 'connections.php', 'connection-ui.css', '.htaccess']:
         shutil.copy2(hub/name, web/name)
     config = {'public_url':'https://hub.example.com', 'encryption_key':os.urandom(32).hex(), 'storage_path':str(private/'connections.sqlite'), 'master_token':'test-admin', 'sites':{'manual':{'url':'https://manual.example.com','key':'sbk_test'}}}
     (web/'config.php').write_text('<?php return json_decode('+json.dumps(json.dumps(config))+', true);')
@@ -60,6 +60,10 @@ if ($input['action'] === 'code') {
             except urllib.error.URLError: time.sleep(.05)
         status,_,body=request()
         check(status==200 and body['ok'], 'health endpoint')
+        req=urllib.request.Request(f'http://127.0.0.1:{port}/',headers={'Accept':'text/html'})
+        with opener.open(req,timeout=5) as r:
+            landing=r.read().decode()
+        check('Your MCP server URL' in landing and 'sb-journey' in landing, 'browser landing uses branded UI while health stays JSON')
         status,headers,_=request(data={'jsonrpc':'2.0','id':1,'method':'tools/list'})
         check(status==401 and 'oauth-protected-resource' in headers['WWW-Authenticate'], 'unauthenticated MCP challenge includes discovery')
         status,_,body=request('/.well-known/oauth-protected-resource')

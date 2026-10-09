@@ -170,13 +170,26 @@ function sbh_connections( $config, $owner ) {
     }
     return $out;
 }
-function sbh_html( $title, $body ) {
+function sbh_html( $title, $body, $step = 1 ) {
     header( 'Content-Type: text/html; charset=UTF-8' );
     header( "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" );
     header( 'Referrer-Policy: no-referrer' );
     header( 'X-Content-Type-Options: nosniff' );
-    echo '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>' . htmlspecialchars( $title ) . '</title><style>body{font:17px system-ui;max-width:620px;margin:8vh auto;padding:24px;color:#172033}input{box-sizing:border-box;width:100%;padding:12px;margin:12px 0}button{padding:12px 20px;background:#2255cc;color:white;border:0;border-radius:6px}small{color:#526070}</style><h1>' . htmlspecialchars( $title ) . '</h1>' . $body . '</html>';
+    $css = file_get_contents( __DIR__ . '/connection-ui.css' );
+    echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . htmlspecialchars( $title ) . ' · SiteBridge</title><style>' . $css . '</style></head><body class="sb-journey"><main class="sb-shell"><div class="sb-brand"><span class="sb-mark" aria-hidden="true">sb</span>SiteBridge</div>';
+    if ( $step ) {
+        echo '<ol class="sb-steps" aria-label="Connection progress">';
+        foreach ( array( 1 => 'Connect', 2 => 'Approve', 3 => 'Ready' ) as $number => $label ) {
+            echo '<li class="' . ( $number === $step ? 'is-current' : ( $number < $step ? 'is-complete' : '' ) ) . '"' . ( $number === $step ? ' aria-current="step"' : '' ) . '><span class="sb-step-number">' . $number . '</span>' . $label . '</li>';
+        }
+        echo '</ol>';
+    }
+    echo '<section class="sb-card" aria-labelledby="sb-title">' . $body . '</section><footer class="sb-footer">Your website. Your AI. Connected with SiteBridge.</footer></main></body></html>';
     exit;
+}
+function sbh_landing( $config ) {
+    $url = sbh_base( $config ) . '/';
+    sbh_html( 'Connect WordPress to your AI', '<p class="sb-eyebrow">WordPress, meet your AI</p><h1 id="sb-title">A little bridge.<br>A lot of possibilities.</h1><p class="sb-lead">Connect your WordPress website to an AI app you use. Manage content, work with products, and get things done through conversation.</p><label class="sb-label" for="sb-endpoint">Your MCP server URL</label><input class="sb-input" id="sb-endpoint" value="' . htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' ) . '" readonly><p class="sb-hint">Paste this URL into your AI app’s remote MCP or connector settings and choose OAuth sign-in.</p><ul class="sb-features"><li>Connect from an AI app that supports remote MCP</li><li>Approve once in your own WordPress dashboard</li><li>Manage access from your SiteBridge settings</li></ul><a class="sb-button" href="https://github.com/cblabs1/sitebridge/blob/main/downloads/sitebridge-plugin_0.3.0.zip">Get the WordPress plugin <span aria-hidden="true">↗</span></a><p class="sb-help"><a href="https://github.com/cblabs1/sitebridge#connect-an-ai-client">Read the connection guide</a></p>', 0 );
 }
 function sbh_access_token( $db, $owner, $client_id, $resource, $family = null ) {
     $access = sbh_random(); $refresh = sbh_random(); $family = $family ?? sbh_random();
@@ -226,7 +239,7 @@ function sbh_browser_routes( $config ) {
             $oauth = array( 'client_id' => $client_id, 'client_name' => $client['client_name'], 'redirect_uri' => $redirect, 'challenge' => $_GET['code_challenge'], 'state' => substr( $_GET['state'] ?? '', 0, 2048 ), 'resource' => $base . '/', 'csrf' => sbh_hash( $csrf ) );
             sbh_put( $db, 'flow', $flow, $oauth, time() + 600 );
             setcookie( 'sbh_flow_' . substr( $flow, 0, 16 ), $csrf, array( 'expires' => time() + 600, 'path' => '/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax' ) );
-            sbh_html( 'Connect WordPress', '<p>Connect a WordPress website to <strong>' . htmlspecialchars( $client['client_name'] ) . '</strong>.</p><p>SiteBridge must be installed. You will sign in to WordPress and choose permissions there. Each client authorization has its own site connections.</p><form method="post" action="/?route=authorize"><input type="hidden" name="flow" value="' . $flow . '"><label>WordPress website URL<input name="site_url" type="url" placeholder="https://yourwebsite.com" required></label><button>Continue to WordPress</button></form>' );
+            sbh_html( 'Connect WordPress', '<p class="sb-eyebrow">Let’s get connected</p><h1 id="sb-title">Your website.<br>Your AI assistant.</h1><p class="sb-lead">Connect your WordPress website to <span class="sb-client">' . htmlspecialchars( $client['client_name'], ENT_QUOTES, 'UTF-8' ) . '</span> through SiteBridge.</p><form method="post" action="/?route=authorize"><input type="hidden" name="flow" value="' . $flow . '"><label class="sb-label" for="sb-site-url">WordPress website URL</label><input class="sb-input" id="sb-site-url" name="site_url" type="url" placeholder="https://yourwebsite.com" autocomplete="url" required><p class="sb-hint">Enter the website where you’ve installed the SiteBridge plugin.</p><button class="sb-button">Continue to WordPress <span aria-hidden="true">→</span></button></form><div class="sb-summary"><p>You’ll sign in to WordPress and approve the connection. Access is managed in your SiteBridge settings.</p></div><p class="sb-note">Each AI client authorization keeps its own connections.</p>' );
         }
         $flow = $_POST['flow'] ?? '';
         $oauth = sbh_get( $db, 'flow', $flow );

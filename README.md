@@ -1,4 +1,4 @@
-# SiteBridge Hub 0.2 — browser-approved WordPress connections
+# SiteBridge Hub 0.3 — browser-approved WordPress connections
 
 A standalone PHP remote MCP hub with OAuth browser sign-in and administrator-approved WordPress connections. An AI can call `connect_site`, give the user an approval link, and verify completion using `connection_status`. No WordPress password or manually copied plugin API key is needed.
 
@@ -10,10 +10,18 @@ AI client → HTTPS MCP hub → SiteBridge plugin → WordPress
 
 The hub remains PHP to run on ordinary PHP hosting. No Node daemon, VPS, background worker or new WordPress database is required. The hub uses a private SQLite database. PHP must have **curl, openssl and pdo_sqlite** enabled. Use PHP 8.3 or a supported newer version.
 
+## Version 0.3 changes
+
+The hub welcome screen, URL entry, WordPress login (only when entered from a SiteBridge connection), approval, success, cancellation and connection errors now share a responsive SiteBridge design. The WordPress settings page includes onboarding steps and connection management.
+
+The approval screen has one Approve button and Cancel, with no permission checkboxes. New connections use the administrator's already-enabled settings. A server-side snapshot prevents settings enabled after opening the screen from broadening that approval; settings disabled before submission are removed from the grant. Existing connections and keys keep their scopes. Approval links opened before updating the plugin may require a fresh link.
+
+This is a SiteBridge design inspired by the connection pattern, not a copy of WPVibe branding or an implementation of WPVibe email accounts.
+
 ## Hostinger upgrade
 
 1. Back up the existing hub files and private `config.php`.
-2. Upload `index.php`, `connections.php`, and `.htaccess` to the domain's document root. Include the hidden `.htaccess` file. Do not overwrite your private config blindly. `README.md` and `config.sample.php` are reference files; tests and plugin source do not need uploading.
+2. Upload `index.php`, `connections.php`, `connection-ui.css`, and `.htaccess` to the domain's document root. Include the hidden `.htaccess` file. Do not overwrite your private config blindly. `README.md` and `config.sample.php` are reference files; tests and plugin source do not need uploading.
 3. Create a folder **outside public_html**, for example `/home/u123456789/sitebridge-private`. Use your actual hosting account path. Its PHP user must be able to write there. A location inside the website's document root is deliberately rejected.
 4. Generate a **separate** encryption secret on your computer with `openssl rand -hex 32`. Keep it stable and back it up privately: changing or losing it makes existing stored WordPress keys unreadable.
 5. Merge these settings into `config.php`:
@@ -32,7 +40,7 @@ return array(
 
 `public_url` must be an HTTPS domain root; subdirectory installation is not supported by the OAuth routing in this version. Do not put the SQLite database in GitHub or public_html. Exclude this endpoint from page caching, bot challenges and HTML login protection; MCP and OAuth responses already send `Cache-Control: no-store`.
 
-6. Install **SiteBridge plugin 0.2.0** on each WordPress website. The old 0.1 plugin cannot process approval links. In WordPress → Plugins → Add New → Upload Plugin, upload the new ZIP and choose to replace the existing version. Existing manual keys/settings remain.
+6. Install **SiteBridge plugin 0.3.0** on each WordPress website. The old 0.1 plugin cannot process approval links. In WordPress → Plugins → Add New → Upload Plugin, upload the new ZIP and choose to replace the existing version. Existing manual keys/settings remain.
 7. In Settings → SiteBridge, enable only the capabilities you want to offer. Start with Site info. An approval cannot enable a capability that is disabled here. Leave database writes and code editing disabled unless explicitly needed.
 
 ## Connect an AI client
@@ -44,7 +52,7 @@ Add this as a remote MCP server URL, selecting **OAuth** where offered:
 1. The client discovers the hub's OAuth endpoints and opens the Connect WordPress page.
 2. Enter the final HTTPS WordPress home URL. SiteBridge must already be installed.
 3. Sign in to WordPress as an administrator if asked.
-4. Review the AI app name, exact hub URL and permissions. Approve or deny.
+4. Review the AI app and website. Access follows the permissions already enabled in WordPress → Settings → SiteBridge; expand connection details to see the access summary and hub URL. Approve or cancel.
 5. Click **Finish connecting to your AI app**. This finishes OAuth using a one-time code; the AI client manages its own access/refresh tokens.
 6. Ask the agent to call `list_sites` and `site_info`.
 
@@ -66,7 +74,7 @@ To retain the old private bearer setup, keep your own `master_token` and existin
 
 ## Verification
 
-- `GET /` returns the health JSON (this alone does not verify storage or WordPress connectivity).
+- `GET /` in a browser shows the welcome page. Requests without an HTML Accept header still return health JSON (neither verifies storage or WordPress connectivity).
 - `GET /.well-known/oauth-authorization-server` returns the OAuth endpoint metadata.
 - `GET /.well-known/oauth-protected-resource` returns resource metadata.
 - An unauthenticated MCP POST returns HTTP 401 with a `WWW-Authenticate` discovery header.
@@ -79,7 +87,7 @@ If discovery gives 404, check `.htaccess` and rewrite support. For HTTP 500, ins
 ## Access controls
 
 - WordPress administrator login, a nonce and an explicit POST are required for approval.
-- Browser approval does not change global plugin settings; each connection key has exactly the selected capabilities. Empty-scope keys are never generated by this flow.
+- Browser approval does not change global plugin settings; each connection key inherits the capabilities enabled when the approval screen opens, intersected with settings still enabled at submission. Empty-scope keys are never generated by this flow.
 - WordPress keys are sent server-to-server over HTTPS using an expiring, one-time exchange code, and stored with AES-256-GCM encryption in the private hub database.
 - OAuth uses hashed opaque access/refresh tokens, S256 PKCE, registered redirect URI matching, resource audience binding, refresh rotation with replay-family revocation, expiry, revocation and endpoint rate limits.
 - The hub maintains isolation by workspace, including connection status and disconnect operations. There is no global customer directory exposed to clients.
@@ -94,6 +102,7 @@ The repository's tests require PHP with curl, openssl and pdo_sqlite, plus Pytho
 ```bash
 php tests/hub-security.php
 php tests/plugin-approval.php
+python3 tests/ui-checks.py
 python3 tests/hub-protocol.py
 ```
 
