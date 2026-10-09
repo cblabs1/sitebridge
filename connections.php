@@ -191,6 +191,15 @@ function sbh_landing( $config ) {
     $url = sbh_base( $config ) . '/';
     sbh_html( 'Connect WordPress to your AI', '<p class="sb-eyebrow">WordPress, meet your AI</p><h1 id="sb-title">A little bridge.<br>A lot of possibilities.</h1><p class="sb-lead">Connect your WordPress website to an AI app you use. Manage content, work with products, and get things done through conversation.</p><label class="sb-label" for="sb-endpoint">Your MCP server URL</label><input class="sb-input" id="sb-endpoint" value="' . htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' ) . '" readonly><p class="sb-hint">Paste this URL into your AI app’s remote MCP or connector settings and choose OAuth sign-in.</p><ul class="sb-features"><li>Connect from an AI app that supports remote MCP</li><li>Approve once in your own WordPress dashboard</li><li>Manage access from your SiteBridge settings</li></ul><a class="sb-button" href="https://github.com/cblabs1/sitebridge/blob/main/downloads/sitebridge-plugin_0.3.0.zip">Get the WordPress plugin <span aria-hidden="true">↗</span></a><p class="sb-help"><a href="https://github.com/cblabs1/sitebridge#connect-an-ai-client">Read the connection guide</a></p>', 0 );
 }
+function sbh_restart_action( $config ) {
+    $id = $_POST['restart'] ?? $_GET['restart'] ?? '';
+    if ( ! is_string( $id ) || ! preg_match( '/^[a-f0-9]{64}$/', $id ) ) { return ''; }
+    try {
+        if ( ! sbh_get( sbh_db( $config ), 'restart', $id ) ) { return ''; }
+        $url = '/?route=authorize&restart=' . $id;
+        return '<a class="sb-button" href="' . htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' ) . '">Restart connection <span aria-hidden="true">→</span></a><p class="sb-note">The fresh form opens in this browser. Your website has not been connected by this step.</p>';
+    } catch ( Throwable $e ) { return ''; }
+}
 function sbh_access_token( $db, $owner, $client_id, $resource, $family = null ) {
     $access = sbh_random(); $refresh = sbh_random(); $family = $family ?? sbh_random();
     $row = array( 'owner' => $owner, 'client_id' => $client_id, 'resource' => $resource, 'family' => $family );
@@ -228,6 +237,13 @@ function sbh_browser_routes( $config ) {
     }
     if ( $route === 'authorize' ) {
         if ( $method === 'GET' ) {
+            // Restart only from server-validated OAuth context; never trust a return URL in a POST.
+            if ( isset( $_GET['restart'] ) ) {
+                $restart = is_string( $_GET['restart'] ) ? $_GET['restart'] : '';
+                $saved = preg_match( '/^[a-f0-9]{64}$/', $restart ) ? sbh_get( $db, 'restart', $restart ) : null;
+                if ( ! $saved ) { sbh_fail( 'This connection session expired. Start a fresh connection from your AI app.', 403 ); }
+                $_GET = array_merge( $_GET, $saved );
+            }
             $client_id = $_GET['client_id'] ?? '';
             $client = sbh_client( $db, $client_id );
             $redirect = $_GET['redirect_uri'] ?? '';
@@ -238,13 +254,17 @@ function sbh_browser_routes( $config ) {
             $flow = sbh_random(); $csrf = sbh_random();
             $oauth = array( 'client_id' => $client_id, 'client_name' => $client['client_name'], 'redirect_uri' => $redirect, 'challenge' => $_GET['code_challenge'], 'state' => substr( $_GET['state'] ?? '', 0, 2048 ), 'resource' => $base . '/', 'csrf' => sbh_hash( $csrf ) );
             sbh_put( $db, 'flow', $flow, $oauth, time() + 600 );
+            $restart = sbh_random();
+            $context = array( 'client_id' => $client_id, 'redirect_uri' => $redirect, 'response_type' => 'code', 'code_challenge_method' => 'S256', 'code_challenge' => $oauth['challenge'], 'state' => $oauth['state'], 'resource' => $base . '/', 'scope' => 'sitebridge' );
+            sbh_put( $db, 'restart', $restart, $context, time() + 1800 );
             setcookie( 'sbh_flow_' . substr( $flow, 0, 16 ), $csrf, array( 'expires' => time() + 600, 'path' => '/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax' ) );
-            sbh_html( 'Connect WordPress', '<p class="sb-eyebrow">Let’s get connected</p><h1 id="sb-title">Your website.<br>Your AI assistant.</h1><p class="sb-lead">Connect your WordPress website to <span class="sb-client">' . htmlspecialchars( $client['client_name'], ENT_QUOTES, 'UTF-8' ) . '</span> through SiteBridge.</p><form method="post" action="/?route=authorize"><input type="hidden" name="flow" value="' . $flow . '"><label class="sb-label" for="sb-site-url">WordPress website URL</label><input class="sb-input" id="sb-site-url" name="site_url" type="url" placeholder="https://yourwebsite.com" autocomplete="url" required><p class="sb-hint">Enter the website where you’ve installed the SiteBridge plugin.</p><button class="sb-button">Continue to WordPress <span aria-hidden="true">→</span></button></form><div class="sb-summary"><p>You’ll sign in to WordPress and approve the connection. Access is managed in your SiteBridge settings.</p></div><p class="sb-note">Each AI client authorization keeps its own connections.</p>' );
+            sbh_html( 'Connect WordPress', '<p class="sb-eyebrow">Let’s get connected</p><h1 id="sb-title">Your website.<br>Your AI assistant.</h1><p class="sb-lead">Connect your WordPress website to <span class="sb-client">' . htmlspecialchars( $client['client_name'], ENT_QUOTES, 'UTF-8' ) . '</span> through SiteBridge.</p><form method="post" action="/?route=authorize"><input type="hidden" name="flow" value="' . $flow . '"><input type="hidden" name="restart" value="' . $restart . '"><label class="sb-label" for="sb-site-url">WordPress website URL</label><input class="sb-input" id="sb-site-url" name="site_url" type="url" placeholder="https://yourwebsite.com" autocomplete="url" required><p class="sb-hint">Enter the website where you’ve installed the SiteBridge plugin.</p><button class="sb-button">Continue to WordPress <span aria-hidden="true">→</span></button></form><div class="sb-summary"><p>You’ll sign in to WordPress and approve the connection. Access is managed in your SiteBridge settings.</p></div><p class="sb-note">Each AI client authorization keeps its own connections.</p>' );
         }
         $flow = $_POST['flow'] ?? '';
         $oauth = sbh_get( $db, 'flow', $flow );
         $cookie = $_COOKIE[ 'sbh_flow_' . substr( $flow, 0, 16 ) ] ?? '';
-        if ( ! $oauth || ! hash_equals( $oauth['csrf'], sbh_hash( $cookie ) ) ) { sbh_fail( 'The sign-in form expired. Start again.', 403 ); }
+        if ( ! $oauth ) { sbh_fail( 'This form expired or was already submitted. Restart below to open a fresh form.', 403 ); }
+        if ( ! hash_equals( $oauth['csrf'], sbh_hash( $cookie ) ) ) { sbh_fail( 'Your browser session could not be verified. Restart below in the same browser, with cookies enabled.', 403 ); }
         $pending = sbh_pending( $config, sbh_random(), trim( $_POST['site_url'] ?? '' ), $oauth['client_name'], $oauth );
         sbh_delete( $db, 'flow', $flow );
         header( 'Referrer-Policy: no-referrer' );

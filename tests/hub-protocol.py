@@ -1,5 +1,5 @@
 """Exercise actual PHP HTTP routes without contacting any real WordPress site."""
-import base64, hashlib, http.cookiejar, json, os, pathlib, shutil, socket, subprocess, tempfile, time, urllib.request, urllib.error
+import re, base64, hashlib, http.cookiejar, json, os, pathlib, shutil, socket, subprocess, tempfile, time, urllib.request, urllib.error
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 def check(condition, name):
@@ -37,9 +37,11 @@ if ($input['action'] === 'code') {
         return json.loads(output) if output else None
     sock = socket.socket(); sock.bind(('127.0.0.1',0)); port = sock.getsockname()[1]; sock.close()
     server = subprocess.Popen(['php','-S',f'127.0.0.1:{port}',str(web/'index.php')], cwd=web, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-    def request(path='/',data=None,token=None,form=False,method=None):
-        headers={}
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs): return None
+    opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    def request(path='/',data=None,token=None,form=False,method=None,extra_headers=None):
+        headers=dict(extra_headers or {})
         if token: headers['Authorization']='Bearer '+token
         if data is not None:
             if form:
@@ -80,8 +82,27 @@ if ($input['action'] === 'code') {
         verifier='x'*64
         challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
         auth={'client_id':client_id,'redirect_uri':client['redirect_uris'][0],'response_type':'code','code_challenge_method':'S256','code_challenge':challenge,'state':'original-state','resource':'https://hub.example.com/'}
-        status,_,body=request('/?route=authorize&'+urlencode(auth))
+        status,auth_headers,body=request('/?route=authorize&'+urlencode(auth))
+        auth_html=body
         check(status==200 and 'Continue to WordPress' in body, 'OAuth sign-in form')
+        flow=re.search(r'name="flow" value="([a-f0-9]+)"',auth_html).group(1)
+        restart=re.search(r'name="restart" value="([a-f0-9]+)"',auth_html).group(1)
+        post={'flow':flow,'restart':restart,'site_url':'https://alice.example.com'}
+        status,_,body=request('/?route=authorize',post,form=True,extra_headers={'Accept':'text/html'})
+        check(status==403 and 'Restart connection' in body and 'browser session' in body,'missing browser cookie gives a safe restart action')
+        status,fresh_headers,fresh_html=request('/?route=authorize&restart='+restart)
+        check(status==200 and 'Continue to WordPress' in fresh_html,'restart reopens validated OAuth context')
+        fresh_flow=re.search(r'name="flow" value="([a-f0-9]+)"',fresh_html).group(1)
+        fresh_restart=re.search(r'name="restart" value="([a-f0-9]+)"',fresh_html).group(1)
+        fresh_post={'flow':fresh_flow,'restart':fresh_restart,'site_url':'https://alice.example.com'}
+        # Test server is HTTP; send its production Secure cookie explicitly rather than weakening it.
+        cookie=fresh_headers['Set-Cookie'].split(';',1)[0]
+        status,headers,_=request('/?route=authorize',fresh_post,form=True,extra_headers={'Cookie':cookie})
+        check(status==303 and '/wp-admin/admin-post.php?' in headers['Location'],'fresh browser form reaches WordPress approval')
+        status,_,body=request('/?route=authorize',fresh_post,form=True,extra_headers={'Cookie':cookie,'Accept':'text/html'})
+        check(status==403 and 'already submitted' in body and 'Restart connection' in body,'resubmitted form fails safely with recovery')
+        status,_,_=request('/?route=authorize&restart='+('0'*64))
+        check(status==403,'forged restart context rejected')
         invalid=dict(auth,redirect_uri='https://evil.example.com/callback')
         status,headers,_=request('/?route=authorize&'+urlencode(invalid))
         check(status==400 and 'Location' not in headers, 'redirect substitution rejected without redirecting')

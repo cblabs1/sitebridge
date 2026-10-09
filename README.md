@@ -1,4 +1,4 @@
-# SiteBridge Hub 0.3 — browser-approved WordPress connections
+# SiteBridge Hub 0.3.1 — browser-approved WordPress connections
 
 A standalone PHP remote MCP hub with OAuth browser sign-in and administrator-approved WordPress connections. An AI can call `connect_site`, give the user an approval link, and verify completion using `connection_status`. No WordPress password or manually copied plugin API key is needed.
 
@@ -9,6 +9,10 @@ This is an initial implementation, not a claim of compatibility with every AI ap
 AI client → HTTPS MCP hub → SiteBridge plugin → WordPress
 
 The hub remains PHP to run on ordinary PHP hosting. No Node daemon, VPS, background worker or new WordPress database is required. The hub uses a private SQLite database. PHP must have **curl, openssl and pdo_sqlite** enabled. Use PHP 8.3 or a supported newer version.
+
+## Version 0.3.1 recovery fix
+
+Expired, resubmitted or cookie-mismatched OAuth forms now offer a Restart connection action backed by a 30-minute, server-validated context. Restart creates a fresh browser-bound form without approving access, changing the registered redirect URI or disabling CSRF checks. The error message distinguishes an expired form from an unverifiable browser cookie. If the original AI client has also expired its OAuth attempt, start again from that client.
 
 ## Version 0.3 changes
 

@@ -31,13 +31,13 @@ if ( ! file_exists( $config_path ) ) {
 }
 $config = require $config_path;
 require_once __DIR__ . '/connections.php';
-set_exception_handler( function ( $error ) {
+set_exception_handler( function ( $error ) use ( $config ) {
     $status = $error instanceof RuntimeException && $error->getCode() >= 400 && $error->getCode() <= 599 ? $error->getCode() : 500;
     error_log( 'SiteBridge hub error: ' . get_class( $error ) );
     if ( ( $_GET['route'] ?? '' ) === 'authorize' && strpos( $_SERVER['HTTP_ACCEPT'] ?? '', 'text/html' ) !== false ) {
         http_response_code( $status );
         $message = $status === 500 ? 'We couldn’t finish this step. Please try again or contact your site administrator.' : $error->getMessage();
-        sbh_html( 'Connection needs attention', '<div class="sb-outcome"><div class="sb-outcome-icon is-error" aria-hidden="true">!</div><p class="sb-eyebrow">Let’s try that again</p><h1 id="sb-title">Connection needs attention</h1><p class="sb-lead">' . htmlspecialchars( $message, ENT_QUOTES, 'UTF-8' ) . '</p><p class="sb-note">Return to your AI app and start a new connection.</p></div>' );
+        sbh_html( 'Connection needs attention', '<div class="sb-outcome"><div class="sb-outcome-icon is-error" aria-hidden="true">!</div><p class="sb-eyebrow">Let’s try that again</p><h1 id="sb-title">Connection needs attention</h1><p class="sb-lead">' . htmlspecialchars( $message, ENT_QUOTES, 'UTF-8' ) . '</p>' . sbh_restart_action( $config ) . '<p class="sb-note">If restarting doesn’t help, return to your AI app and start a new connection.</p></div>' );
     }
     sbh_json( array( 'error' => $status === 500 ? 'Internal server error. Check server logs and configuration.' : $error->getMessage() ), $status );
 } );
@@ -421,7 +421,7 @@ switch ( $method ) {
 			array(
 				'protocolVersion' => $client_ver,
 				'capabilities'    => array( 'tools' => new stdClass() ),
-				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.3.0' ),
+				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.3.1' ),
 			)
 		);
 		break;
