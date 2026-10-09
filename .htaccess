@@ -1,0 +1,21 @@
+# SiteBridge Hub — Apache config for shared hosting (Hostinger hPanel).
+
+# 1) Make sure the Authorization header reaches PHP (some hosts strip it).
+<IfModule mod_rewrite.c>
+	RewriteEngine On
+	RewriteCond %{HTTP:Authorization} .
+	RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+# CGI/FastCGI variant of the same fix.
+<IfModule mod_setenvif.c>
+	SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+CGIPassAuth On
+
+# 2) Never serve the config or sample files directly.
+<FilesMatch "^(config\.php|config\.sample\.php)$">
+	Require all denied
+</FilesMatch>
+
+# 3) Route the bare folder to index.php (the MCP endpoint).
+DirectoryIndex index.php

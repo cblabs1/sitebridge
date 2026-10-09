@@ -1,0 +1,5 @@
+config.php
+.env
+.env.*
+.DS_Store
+*.bak
