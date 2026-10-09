@@ -1,133 +1,102 @@
-# SiteBridge Hub — your online, multi-site MCP server (PHP)
+# SiteBridge Hub 0.2 — browser-approved WordPress connections
 
-This is the "WPVibe-style" piece: **one hosted endpoint that manages many WordPress sites.**
-It's written in **PHP** so it runs on ordinary shared hosting (Hostinger Business / hPanel) —
-no Node process, no VPS required. It speaks the Model Context Protocol over HTTPS and proxies
-each call to the **SiteBridge plugin** on whichever site you name.
+A standalone PHP remote MCP hub with OAuth browser sign-in and administrator-approved WordPress connections. An AI can call `connect_site`, give the user an approval link, and verify completion using `connection_status`. No WordPress password or manually copied plugin API key is needed.
 
-```
-   AI client ──HTTPS + master token──▶  SiteBridge Hub (this, on Hostinger)  ──plugin key──▶  site A
-                                                                              ──plugin key──▶  site B
-                                                                              ──plugin key──▶  site C
-```
+This is an initial implementation, not a claim of compatibility with every AI application or a security-audited hosted service. The AI client must support remote HTTP MCP with OAuth public clients and S256 PKCE. Live client/WordPress compatibility must be checked after deployment.
 
-Every tool takes a `site` argument (like WPVibe's `site_url`). A `list_sites` tool shows what's registered.
+## Architecture
 
----
+AI client → HTTPS MCP hub → SiteBridge plugin → WordPress
 
-## Prerequisites
+The hub remains PHP to run on ordinary PHP hosting. No Node daemon, VPS, background worker or new WordPress database is required. The hub uses a private SQLite database. PHP must have **curl, openssl and pdo_sqlite** enabled. Use PHP 8.3 or a supported newer version.
 
-1. The **SiteBridge plugin** installed and activated on each WordPress site you want to manage,
-   with the capabilities you want enabled and an API key generated (Settings → SiteBridge).
-2. A place to host this folder with **HTTPS** — a subdomain on your Hostinger account is perfect,
-   e.g. `mcp.yourdomain.com`.
+## Hostinger upgrade
 
-> PHP shared hosting runs this fine because it's plain request/response PHP — there's no
-> long-running process to keep alive.
+1. Back up the existing hub files and private `config.php`.
+2. Upload `index.php`, `connections.php`, and `.htaccess` to the domain's document root. Include the hidden `.htaccess` file. Do not overwrite your private config blindly. `README.md` and `config.sample.php` are reference files; tests and plugin source do not need uploading.
+3. Create a folder **outside public_html**, for example `/home/u123456789/sitebridge-private`. Use your actual hosting account path. Its PHP user must be able to write there. A location inside the website's document root is deliberately rejected.
+4. Generate a **separate** encryption secret on your computer with `openssl rand -hex 32`. Keep it stable and back it up privately: changing or losing it makes existing stored WordPress keys unreadable.
+5. Merge these settings into `config.php`:
 
----
-
-## Deploy to Hostinger (hPanel)
-
-1. In hPanel, create a subdomain, e.g. **`mcp.yourdomain.com`**, and note its document root
-   (something like `domains/yourdomain.com/public_html/mcp` or a dedicated folder).
-2. Upload the contents of this `sitebridge-hub/` folder into that document root
-   (`index.php`, `.htaccess`, `config.sample.php`). Use hPanel **File Manager** or FTP.
-3. In File Manager, **copy `config.sample.php` to `config.php`** and edit it:
-   - Set `master_token` to a long random string. Generate one at
-     <https://www.random.org/strings/> or, if you have SSH, `openssl rand -hex 32`.
-   - Under `sites`, add each site: a short name → its `url` and the `sbk_…` plugin key from that site.
-4. Make sure the subdomain has **SSL** (hPanel → SSL → install free Let's Encrypt if not already).
-
-**Test it's live** — visit `https://mcp.yourdomain.com/` in a browser. You should see:
-```json
-{"ok":true,"service":"sitebridge-hub","transport":"mcp/http"}
+```php
+<?php
+return array(
+    'public_url' => 'https://lemonchiffon-pigeon-682675.hostingersite.com',
+    'encryption_key' => 'YOUR_NEW_64_CHARACTER_HEX_SECRET',
+    'storage_path' => '/home/YOUR_HOSTINGER_USER/sitebridge-private/connections.sqlite',
+    'master_token' => '',
+    'sites' => array(),
+    'timeout' => 30,
+);
 ```
 
-**Test a real call** (replace the token):
-```bash
-curl -X POST https://mcp.yourdomain.com/ \
-  -H "Authorization: Bearer YOUR_MASTER_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_sites","arguments":{}}}'
-```
-You should get your list of registered sites back.
+`public_url` must be an HTTPS domain root; subdirectory installation is not supported by the OAuth routing in this version. Do not put the SQLite database in GitHub or public_html. Exclude this endpoint from page caching, bot challenges and HTML login protection; MCP and OAuth responses already send `Cache-Control: no-store`.
 
-Your **MCP endpoint URL** is: `https://mcp.yourdomain.com/`
-
----
+6. Install **SiteBridge plugin 0.2.0** on each WordPress website. The old 0.1 plugin cannot process approval links. In WordPress → Plugins → Add New → Upload Plugin, upload the new ZIP and choose to replace the existing version. Existing manual keys/settings remain.
+7. In Settings → SiteBridge, enable only the capabilities you want to offer. Start with Site info. An approval cannot enable a capability that is disabled here. Leave database writes and code editing disabled unless explicitly needed.
 
 ## Connect an AI client
 
-### Claude Code (native remote MCP — simplest)
+Add this as a remote MCP server URL, selecting **OAuth** where offered:
+
+`https://lemonchiffon-pigeon-682675.hostingersite.com/`
+
+1. The client discovers the hub's OAuth endpoints and opens the Connect WordPress page.
+2. Enter the final HTTPS WordPress home URL. SiteBridge must already be installed.
+3. Sign in to WordPress as an administrator if asked.
+4. Review the AI app name, exact hub URL and permissions. Approve or deny.
+5. Click **Finish connecting to your AI app**. This finishes OAuth using a one-time code; the AI client manages its own access/refresh tokens.
+6. Ask the agent to call `list_sites` and `site_info`.
+
+The initial OAuth sign-in connects the first site. To add another site, ask: **“Use connect_site to connect https://my-other-site.com.”** Open the returned `approval_url`, approve in WordPress, then have the agent call `connection_status` with its `request_id`.
+
+A connection request lasts 10 minutes. Credential exchange codes and OAuth authorization codes last 2 minutes. If a flow expires, request a fresh link. Never put API keys, master tokens or WordPress passwords in approval URLs or chat messages.
+
+### Client workspaces and limitations
+
+Each completed OAuth authorization gets an isolated workspace. Its access and refresh tokens can reach only sites approved in that workspace. Different AI clients/authorizations do **not** automatically share sites. Re-authorizing from scratch creates a new workspace and requires site approval again; this version does not provide a shared email account, account recovery or email-code sign-in like WPVibe.
+
+The hub supports public OAuth clients with PKCE, dynamic client registration and HTTPS Client ID Metadata Documents. Confidential client authentication is not implemented. Clients requiring different registration/authentication mechanisms may need an adapter or further work. The MCP transport uses single-response JSON; server-initiated streaming is not implemented.
+
+Only public HTTPS WordPress destinations with working IPv4 DNS are supported. The hub blocks private/reserved destinations, pins resolved addresses and does not follow redirects; supply the final canonical WordPress URL, including `www` or a path if applicable. The plugin expects that URL to match WordPress `home_url()`.
+
+### Legacy manual mode
+
+To retain the old private bearer setup, keep your own `master_token` and existing `sites` entries. That token can see those manual sites and any sites approved through it, but cannot see OAuth workspaces. Do not give the master token to customers. Leave it empty to disable manual access. Old configurations without the new settings still support manual tools, but browser connection tools require the new configuration.
+
+## Verification
+
+- `GET /` returns the health JSON (this alone does not verify storage or WordPress connectivity).
+- `GET /.well-known/oauth-authorization-server` returns the OAuth endpoint metadata.
+- `GET /.well-known/oauth-protected-resource` returns resource metadata.
+- An unauthenticated MCP POST returns HTTP 401 with a `WWW-Authenticate` discovery header.
+- `GET /config.php` and `/config.sample.php` should return 403.
+- Complete a real administrator approval, verify `site_info`, then revoke its key in WordPress and confirm subsequent calls fail.
+- Test your intended AI clients; passing local protocol tests does not prove all-client compatibility.
+
+If discovery gives 404, check `.htaccess` and rewrite support. For HTTP 500, inspect PHP error logs and extensions. A storage error means the private directory path, write permissions or encryption secret needs correction. A WordPress mismatch means the URL differs from its configured home URL. A failed approval should be retried with a fresh request; the plugin revokes the newly generated key if completion fails.
+
+## Access controls
+
+- WordPress administrator login, a nonce and an explicit POST are required for approval.
+- Browser approval does not change global plugin settings; each connection key has exactly the selected capabilities. Empty-scope keys are never generated by this flow.
+- WordPress keys are sent server-to-server over HTTPS using an expiring, one-time exchange code, and stored with AES-256-GCM encryption in the private hub database.
+- OAuth uses hashed opaque access/refresh tokens, S256 PKCE, registered redirect URI matching, resource audience binding, refresh rotation with replay-family revocation, expiry, revocation and endpoint rate limits.
+- The hub maintains isolation by workspace, including connection status and disconnect operations. There is no global customer directory exposed to clients.
+- Revoke a connection's API key in WordPress → Settings → SiteBridge to stop site access immediately. `disconnect_site` removes the hub reference only; the WordPress key remains until revoked there.
+- OAuth token revocation disables the relevant token family. It does not delete the WordPress API key or connection history.
+- Backup the database and encryption key privately. This single-instance SQLite version is not a horizontally scaled hosted service. Do not place it on multiple instances with independent disks.
+
+## Development checks
+
+The repository's tests require PHP with curl, openssl and pdo_sqlite, plus Python 3. Run from the repository root:
+
 ```bash
-claude mcp add sitebridge --transport http https://mcp.yourdomain.com/ \
-  --header "Authorization: Bearer YOUR_MASTER_TOKEN"
+php tests/hub-security.php
+php tests/plugin-approval.php
+python3 tests/hub-protocol.py
 ```
-Then: *"Using sitebridge, list my sites"* → *"get site_info for rickrak"*.
 
-### Claude Desktop (via the mcp-remote bridge)
-Claude Desktop launches local (stdio) servers, so use the standard `mcp-remote` bridge to reach
-your hosted hub. Edit `claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "sitebridge": {
-      "command": "npx",
-      "args": [
-        "-y", "mcp-remote",
-        "https://mcp.yourdomain.com/",
-        "--header", "Authorization: Bearer YOUR_MASTER_TOKEN"
-      ]
-    }
-  }
-}
-```
-Restart Claude Desktop. (This needs Node/npx on the *desktop*, not on the server.)
+The HTTP suite starts a temporary local PHP server and uses fixture grants; it never connects a real WordPress site. The plugin suite stubs WordPress APIs. Real WordPress/browser testing and target-client testing remain deployment checks.
 
-### Any other MCP client
-Point it at `https://mcp.yourdomain.com/` with header `Authorization: Bearer YOUR_MASTER_TOKEN`.
-
----
-
-## Adding a new site later
-
-1. Install + activate the SiteBridge plugin on the new site, enable capabilities, generate a key.
-2. Add an entry under `sites` in `config.php`:
-   ```php
-   'newsite' => array( 'url' => 'https://newsite.com', 'key' => 'sbk_...' ),
-   ```
-That's it — no redeploy needed; the next call picks it up.
-
----
-
-## Tools (each takes a `site` argument, except `list_sites`)
-
-`list_sites`, `site_info`, `list_content`, `get_content`, `create_content`, `update_content`,
-`list_products`, `get_product`, `update_product`, `get_option`, `db_query`, `db_execute` ⚠,
-`read_file` ⚠, `write_file` ⚠.
-
-The ⚠ tools only work if that capability is enabled in the site's SiteBridge plugin settings —
-the hub can't override a site's own permissions.
-
----
-
-## Security notes
-
-- **One master token** guards the whole hub — treat it like a password; rotate it by changing
-  `config.php`. Anyone with it can reach every registered site, so keep the endpoint HTTPS-only.
-- **Two layers of control**: the hub's master token lets a client *in*; each site's plugin key +
-  capability toggles decide what can actually be *done* there. A site stays safe even if it's
-  registered, because its own DANGEROUS toggles are off unless you enabled them.
-- `config.php` is blocked from the web by `.htaccess`. Confirm `https://mcp.yourdomain.com/config.php`
-  returns 403, not your secrets.
-- Consider a per-site key with only the capabilities that site needs, rather than reusing one key.
-
-## Limitations & next steps
-
-- This hub does single-response JSON-RPC (no server-initiated streaming) — perfect for tools,
-  which is all SiteBridge needs.
-- Natural upgrades: per-client tokens with site scoping, an activity log table, and a one-click
-  browser auth flow for registering sites (like WPVibe's connect link).
-
-*Independent software following the WPVibe pattern; not affiliated with WPVibe.*
+Independent software; not affiliated with WPVibe.

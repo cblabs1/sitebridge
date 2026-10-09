@@ -19,3 +19,17 @@ CGIPassAuth On
 
 # 3) Route the bare folder to index.php (the MCP endpoint).
 DirectoryIndex index.php
+
+# OAuth discovery endpoints must reach PHP.
+<IfModule mod_rewrite.c>
+    RewriteRule ^\.well-known/oauth-(protected-resource.*|authorization-server)$ index.php [L,QSA]
+</IfModule>
+
+# Defense in depth: private runtime and development files are never public.
+<FilesMatch "^(connections\.php|.*\.(sqlite|sqlite3|db)(-.*)?|.*\.bak|\.env.*|\.gitignore)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteRule ^(?:tests|wordpress-plugin|\.git)(?:/|$) - [F,L]
+</IfModule>

@@ -1,40 +1,19 @@
 <?php
-/**
- * SiteBridge Hub configuration.
- *
- * COPY this file to `config.php` (same folder) and fill in your values.
- * config.php is blocked from the web by .htaccess and must never be committed.
- */
-
+/** Copy to config.php. Never commit that file or either secret. */
 return array(
+    'public_url' => 'https://lemonchiffon-pigeon-682675.hostingersite.com',
 
-	/*
-	 * Master token: the single secret that protects this hub.
-	 * Any AI client must send it as  Authorization: Bearer <this value>.
-	 * Generate a long random string, e.g. on the server:  openssl rand -hex 32
-	 */
-	'master_token' => 'CHANGE-ME-to-a-long-random-string',
+    // Generate a NEW, separate value with: openssl rand -hex 32
+    // Keep this stable: it encrypts stored WordPress credentials.
+    'encryption_key' => 'REPLACE_WITH_A_NEW_64_CHARACTER_HEX_SECRET',
 
-	/*
-	 * The WordPress sites this hub can manage.
-	 * The key (e.g. "rickrak") is the short name you pass as the tool's "site" argument.
-	 * "url" is the site root; "key" is the SiteBridge plugin API key generated on that site
-	 * (Settings → SiteBridge → Generate new key).
-	 */
-	'sites' => array(
-		'rickrak' => array(
-			'url' => 'https://rickrak.com',
-			'key' => 'sbk_PUT_THE_PLUGIN_KEY_FOR_THIS_SITE_HERE',
-		),
-		'wpsprints' => array(
-			'url' => 'https://www.wpsprints.com',
-			'key' => 'sbk_PUT_THE_PLUGIN_KEY_FOR_THIS_SITE_HERE',
-		),
-		// Add as many as you like…
-	),
+    // Existing, writable private directory OUTSIDE your website document root.
+    // Replace this with your actual Hostinger home path. Do not use public_html.
+    'storage_path' => '/home/YOUR_HOSTINGER_USER/sitebridge-private/connections.sqlite',
 
-	/*
-	 * Optional: request timeout (seconds) when the hub calls a site.
-	 */
-	'timeout' => 30,
+    // Optional legacy/private administrator token. Empty disables manual bearer access.
+    // OAuth users do not need this token and cannot see these manually configured sites.
+    'master_token' => '',
+    'sites' => array(),
+    'timeout' => 30,
 );

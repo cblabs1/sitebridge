@@ -30,16 +30,18 @@ if ( ! file_exists( $config_path ) ) {
 	exit;
 }
 $config = require $config_path;
+require_once __DIR__ . '/connections.php';
+set_exception_handler( function ( $error ) {
+    $status = $error instanceof RuntimeException && $error->getCode() >= 400 && $error->getCode() <= 599 ? $error->getCode() : 500;
+    error_log( 'SiteBridge hub error: ' . get_class( $error ) );
+    sbh_json( array( 'error' => $status === 500 ? 'Internal server error. Check server logs and configuration.' : $error->getMessage() ), $status );
+} );
+sbh_browser_routes( $config );
 
 // Only POST carries JSON-RPC. A GET is handy as a health check.
 $method_http = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-if ( 'GET' === $method_http ) {
+if ( 'GET' === $method_http && ( $_GET['route'] ?? '' ) !== 'mcp' && empty( $_SERVER['HTTP_AUTHORIZATION'] ) && strpos( $_SERVER['HTTP_ACCEPT'] ?? '', 'text/event-stream' ) === false ) {
 	echo json_encode( array( 'ok' => true, 'service' => 'sitebridge-hub', 'transport' => 'mcp/http' ) );
-	exit;
-}
-if ( 'POST' !== $method_http ) {
-	http_response_code( 405 );
-	echo json_encode( array( 'error' => 'Method not allowed' ) );
 	exit;
 }
 
@@ -67,7 +69,7 @@ function sbh_bearer() {
 	return trim( $hdr );
 }
 
-$raw  = file_get_contents( 'php://input' );
+$raw  = sbh_body();
 $msg  = json_decode( $raw, true );
 $id   = is_array( $msg ) && isset( $msg['id'] ) ? $msg['id'] : null;
 
@@ -102,9 +104,23 @@ function sbh_result( $id, $result ) {
 
 // Constant-time token check.
 $token = sbh_bearer();
-if ( ! is_string( $config['master_token'] ) || '' === $config['master_token'] || ! hash_equals( (string) $config['master_token'], (string) $token ) ) {
-	sbh_error( $id, -32001, 'Unauthorized: invalid master token.', 401 );
+$identity = sbh_identity( $config, $token );
+if ( ! $identity ) {
+    if ( ! empty( $config['public_url'] ) ) {
+        header( 'WWW-Authenticate: Bearer resource_metadata="' . sbh_base( $config ) . '/.well-known/oauth-protected-resource", scope="sitebridge"' );
+    }
+	sbh_error( $id, -32001, 'Unauthorized: sign in to SiteBridge or provide a valid bearer token.', 401 );
 }
+
+if ( 'POST' !== $method_http ) {
+	http_response_code( 405 );
+	echo json_encode( array( 'error' => 'Method not allowed' ) );
+	exit;
+}
+
+$config['_identity'] = $identity;
+$manual_sites = $identity['owner'] === 'legacy-admin' ? ( $config['sites'] ?? array() ) : array();
+$config['sites'] = ! empty( $config['public_url'] ) ? array_merge( $manual_sites, sbh_connections( $config, $identity['owner'] ) ) : $manual_sites;
 
 if ( ! is_array( $msg ) || ! isset( $msg['method'] ) ) {
 	sbh_error( $id, -32600, 'Invalid JSON-RPC request.', 400 );
@@ -133,38 +149,12 @@ function sbh_call_site( $config, $site, $http_method, $path, $query = array(), $
 		$url .= '?' . http_build_query( $query );
 	}
 
-	$ch = curl_init( $url );
-	curl_setopt_array(
-		$ch,
-		array(
-			CURLOPT_CUSTOMREQUEST  => $http_method,
-			CURLOPT_RETURNTRANSFER => true,
-			CURLOPT_TIMEOUT        => isset( $config['timeout'] ) ? (int) $config['timeout'] : 30,
-			CURLOPT_HTTPHEADER     => array(
-				'Authorization: Bearer ' . $s['key'],
-				'Content-Type: application/json',
-				'Accept: application/json',
-			),
-		)
-	);
-	if ( null !== $body ) {
-		curl_setopt( $ch, CURLOPT_POSTFIELDS, json_encode( $body ) );
-	}
-	$resp = curl_exec( $ch );
-	if ( false === $resp ) {
-		$err = curl_error( $ch );
-		curl_close( $ch );
-		return array( 'ok' => false, 'error' => 'Request to site failed: ' . $err );
-	}
-	$code = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
-	curl_close( $ch );
-
-	$data = json_decode( $resp, true );
-	if ( $code >= 400 ) {
-		$m = is_array( $data ) && isset( $data['message'] ) ? $data['message'] : ( 'HTTP ' . $code );
-		return array( 'ok' => false, 'error' => $m, 'status' => $code );
-	}
-	return array( 'ok' => true, 'data' => null === $data ? $resp : $data );
+	try {
+        $data = sbh_http( $url, $http_method, $body === null ? null : json_encode( $body ), array(
+            'Authorization: Bearer ' . $s['key'], 'Content-Type: application/json', 'Accept: application/json'
+        ), (int) ( $config['timeout'] ?? 30 ) );
+        return array( 'ok' => true, 'data' => $data );
+    } catch ( Throwable $e ) { return array( 'ok' => false, 'error' => $e->getMessage() ); }
 }
 
 /**
@@ -193,6 +183,12 @@ function sbh_site_prop() {
 function sbh_tools() {
 	$site = sbh_site_prop();
 	return array(
+        array( 'name' => 'connect_site', 'description' => 'Connect a WordPress site. Returns a temporary approval URL. Give that URL to the user; only a WordPress administrator can approve. Never request passwords or API keys. After approval call connection_status.',
+            'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site_url' => array( 'type' => 'string', 'description' => 'Final public HTTPS WordPress home URL.' ) ), 'required' => array( 'site_url' ) ) ),
+        array( 'name' => 'connection_status', 'description' => 'Check a connection request after the user opens its approval link. Returns pending, connected, denied, failed, or expired.',
+            'inputSchema' => array( 'type' => 'object', 'properties' => array( 'request_id' => array( 'type' => 'string' ) ), 'required' => array( 'request_id' ) ) ),
+        array( 'name' => 'disconnect_site', 'description' => 'Remove this site connection from the current client authorization. The WordPress administrator can also revoke its key in Settings > SiteBridge.',
+            'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => sbh_site_prop() ), 'required' => array( 'site' ) ) ),
 		array(
 			'name'        => 'list_sites',
 			'description' => 'List the WordPress sites this hub can manage (their short names and URLs).',
@@ -301,6 +297,19 @@ function sbh_dispatch_tool( $config, $name, $args ) {
 	$site = isset( $args['site'] ) ? preg_replace( '/[^a-zA-Z0-9_\-]/', '', $args['site'] ) : '';
 
 	switch ( $name ) {
+        case 'connect_site':
+            sbh_rate( sbh_db( $config ), 'connect', 30 );
+            return sbh_tool_result( sbh_pending( $config, $config['_identity']['owner'], $args['site_url'] ?? '', $config['_identity']['client_name'] ) );
+        case 'connection_status':
+            $row = sbh_get( sbh_db( $config ), 'pending', $args['request_id'] ?? '' );
+            if ( ! $row || ! hash_equals( $row['owner'], $config['_identity']['owner'] ) ) { return sbh_tool_result( array( 'status' => 'expired' ) ); }
+            return sbh_tool_result( array( 'status' => $row['status'], 'site' => $row['site'] ?? null ) );
+        case 'disconnect_site':
+            $db = sbh_db( $config );
+            $row = sbh_get( $db, 'connection', $site );
+            if ( ! $row || ! hash_equals( $row['owner'], $config['_identity']['owner'] ) ) { return sbh_tool_result( 'Unknown site connection.', true ); }
+            sbh_delete( $db, 'connection', $site );
+            return sbh_tool_result( array( 'disconnected' => true ) );
 		case 'list_sites':
 			$out = array();
 			foreach ( $config['sites'] as $key => $s ) {
@@ -399,13 +408,14 @@ function sbh_dispatch_tool( $config, $name, $args ) {
 switch ( $method ) {
 
 	case 'initialize':
-		$client_ver = isset( $params['protocolVersion'] ) ? $params['protocolVersion'] : '2025-06-18';
+		$requested_ver = $params['protocolVersion'] ?? '';
+		$client_ver = in_array( $requested_ver, array( '2025-03-26', '2025-06-18', '2025-11-25' ), true ) ? $requested_ver : '2025-11-25';
 		sbh_result(
 			$id,
 			array(
 				'protocolVersion' => $client_ver,
 				'capabilities'    => array( 'tools' => new stdClass() ),
-				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.1.0' ),
+				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.2.0' ),
 			)
 		);
 		break;
@@ -421,7 +431,12 @@ switch ( $method ) {
 	case 'tools/call':
 		$name = isset( $params['name'] ) ? $params['name'] : '';
 		$args = isset( $params['arguments'] ) && is_array( $params['arguments'] ) ? $params['arguments'] : array();
-		sbh_result( $id, sbh_dispatch_tool( $config, $name, $args ) );
+		try {
+            $result = sbh_dispatch_tool( $config, $name, $args );
+        } catch ( Throwable $e ) {
+            $result = sbh_tool_result( $e instanceof RuntimeException ? $e->getMessage() : 'Invalid tool arguments or internal error.', true );
+        }
+        sbh_result( $id, $result );
 		break;
 
 	default:

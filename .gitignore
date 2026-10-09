@@ -3,3 +3,9 @@ config.php
 .env.*
 .DS_Store
 *.bak
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.db
+node_modules/
+__pycache__/
