@@ -1,4 +1,4 @@
-# SiteBridge Hub 0.3.1 — browser-approved WordPress connections
+# SiteBridge Hub 0.4 — browser-approved WordPress connections
 
 A standalone PHP remote MCP hub with OAuth browser sign-in and administrator-approved WordPress connections. An AI can call `connect_site`, give the user an approval link, and verify completion using `connection_status`. No WordPress password or manually copied plugin API key is needed.
 
@@ -9,6 +9,12 @@ This is an initial implementation, not a claim of compatibility with every AI ap
 AI client → HTTPS MCP hub → SiteBridge plugin → WordPress
 
 The hub remains PHP to run on ordinary PHP hosting. No Node daemon, VPS, background worker or new WordPress database is required. The hub uses a private SQLite database. PHP must have **curl, openssl and pdo_sqlite** enabled. Use PHP 8.3 or a supported newer version.
+
+## Version 0.4 visual update
+
+Connection screens now use a dark, animated CSS starfield with centered cards. The animation respects reduced-motion preferences and uses no scripts, external assets or tracking. The approval page displays the app, website and connection service with Approve / Cancel; it contains no permission controls or permission list. Access configuration remains in the installed WordPress plugin. The existing server-side scope snapshot and global capability checks are unchanged.
+
+**Update the WordPress plugin to 0.4.0 as well as deploying the hub.** The approval page is rendered by WordPress. GitHub CI/CD for the standalone hub does not update an installed plugin on another website. Upload `downloads/sitebridge-plugin_0.4.0.zip` under WordPress → Plugins → Add New → Upload Plugin and replace the existing SiteBridge version. Existing settings, keys and connections remain. Ask for a fresh connection link afterward. No database or encryption configuration changes are needed for this upgrade.
 
 ## Version 0.3.1 recovery fix
 
@@ -44,7 +50,7 @@ return array(
 
 `public_url` must be an HTTPS domain root; subdirectory installation is not supported by the OAuth routing in this version. Do not put the SQLite database in GitHub or public_html. Exclude this endpoint from page caching, bot challenges and HTML login protection; MCP and OAuth responses already send `Cache-Control: no-store`.
 
-6. Install **SiteBridge plugin 0.3.0** on each WordPress website. The old 0.1 plugin cannot process approval links. In WordPress → Plugins → Add New → Upload Plugin, upload the new ZIP and choose to replace the existing version. Existing manual keys/settings remain.
+6. Install **SiteBridge plugin 0.4.0** on each WordPress website. The old 0.1 plugin cannot process approval links. In WordPress → Plugins → Add New → Upload Plugin, upload the new ZIP and choose to replace the existing version. Existing manual keys/settings remain.
 7. In Settings → SiteBridge, enable only the capabilities you want to offer. Start with Site info. An approval cannot enable a capability that is disabled here. Leave database writes and code editing disabled unless explicitly needed.
 
 ## Connect an AI client
@@ -56,7 +62,7 @@ Add this as a remote MCP server URL, selecting **OAuth** where offered:
 1. The client discovers the hub's OAuth endpoints and opens the Connect WordPress page.
 2. Enter the final HTTPS WordPress home URL. SiteBridge must already be installed.
 3. Sign in to WordPress as an administrator if asked.
-4. Review the AI app and website. Access follows the permissions already enabled in WordPress → Settings → SiteBridge; expand connection details to see the access summary and hub URL. Approve or cancel.
+4. Review the AI app and website. Access follows the permissions already enabled in WordPress → Settings → SiteBridge; the connection service URL stays visible and permissions are managed only in the installed plugin settings. Approve or cancel.
 5. Click **Finish connecting to your AI app**. This finishes OAuth using a one-time code; the AI client manages its own access/refresh tokens.
 6. Ask the agent to call `list_sites` and `site_info`.
 

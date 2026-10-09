@@ -3,7 +3,7 @@
  * Plugin Name:       SiteBridge — AI Site Connector
  * Plugin URI:        https://example.com/sitebridge
  * Description:       Exposes safe, API-key-protected REST endpoints so an external MCP server / AI agent can manage this WordPress site (site info, content, WooCommerce, options, and guarded DB/code editing). A WPVibe-style connector you own.
- * Version:           0.3.0
+ * Version:           0.4.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Your Agency
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // No direct access.
 }
 
-define( 'SITEBRIDGE_VERSION', '0.3.0' );
+define( 'SITEBRIDGE_VERSION', '0.4.0' );
 define( 'SITEBRIDGE_FILE', __FILE__ );
 define( 'SITEBRIDGE_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SITEBRIDGE_NS', 'sitebridge/v1' );

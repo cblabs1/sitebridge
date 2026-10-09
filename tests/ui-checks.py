@@ -8,7 +8,7 @@ def check(value,name):
 approval=render('approve')
 check('type="checkbox"' not in approval and 'name="caps' not in approval,'approval has no permission controls')
 check('Approve connection' in approval and 'value="deny"' in approval,'approval and cancel remain explicit')
-check('Create and edit posts' in approval and 'Modify the database' not in approval,'connection details summarize only enabled access')
+check(all(text not in approval for text in ['Create and edit posts','Modify the database','View connection details','Permissions','name="caps']),'approval displays no permission list or permission fields')
 check('name="_wpnonce"' in approval and 'name="local"' in approval,'rendered approval retains CSRF fields')
 check('aria-current="step"' in approval and 'aria-labelledby="sb-title"' in approval,'progress and card have accessible labels')
 escaped=render('escape')
@@ -19,3 +19,5 @@ for mode,title in [('success','You’re connected'),('denied','Connection cancel
 check('Finish connecting to your AI app' in render('success'),'success retains explicit OAuth completion link')
 css=(root/'sitebridge/assets/connection-ui.css' if (root/'sitebridge').is_dir() else root/'wordpress-plugin/sitebridge/assets/connection-ui.css').read_text()
 check('@media(max-width:540px)' in css and ':focus-visible' in css and 'prefers-reduced-motion' in css,'responsive, keyboard focus and reduced-motion styles present')
+
+check('sb-stars-drift' in css and 'body.sb-journey::before' in css and 'justify-content:center' in css,'dark star field and vertically centered cards are present')

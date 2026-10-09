@@ -39,7 +39,7 @@ class SiteBridge_Connect {
     }
     public function login_style() {
         if ( ! $this->is_login() ) { return; }
-        echo '<style>body.login{background:radial-gradient(ellipse at 50% 0,#eeeaff,transparent 60%),#f8f9fc;font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.login #login{padding-top:7vh;width:min(360px,calc(100% - 40px))}.login h1 a{background:none;text-indent:0;width:auto;height:auto;font-size:25px;letter-spacing:-1px;font-weight:750;color:#19223b}.login form{border:1px solid #e5e6ef;border-radius:18px;padding:28px;box-shadow:0 18px 65px #25285d08}.login .message,.login #login_error{border-radius:10px}.login .button-primary{background:#6554dc;border-color:#6554dc;border-radius:7px;min-height:38px}.login .button-primary:hover{background:#5141bf;border-color:#5141bf}.login input[type=text],.login input[type=password]{border-radius:8px;border-color:#cdd1df}.login #nav a,.login #backtoblog a{color:#69718a}</style>';
+        echo '<style>body.login{background:radial-gradient(ellipse at 50% 0,#35245566,transparent 60%),#070b16;color:#f1f3ff;font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.login #login{padding-top:7vh;width:min(360px,calc(100% - 40px))}.login h1 a{background:none;text-indent:0;width:auto;height:auto;font-size:25px;letter-spacing:-1px;font-weight:750;color:#f1f3ff}.login form{background:#111728;border:1px solid #ffffff20;border-radius:18px;padding:28px;box-shadow:0 18px 65px #0005;color:#f1f3ff}.login .message,.login #login_error{border-radius:10px}.login .button-primary{background:#a998ff;border-color:#a998ff;color:#101027;border-radius:7px;min-height:38px}.login .button-primary:hover{background:#c0b2ff;border-color:#c0b2ff}.login input[type=text],.login input[type=password]{border-radius:8px;border-color:#ffffff30;background:#080d1a;color:#f1f3ff}.login #nav a,.login #backtoblog a{color:#9ca6c5}</style>';
         add_filter( 'login_message', function ( $message ) { return '<p class="message">Sign in to WordPress to finish connecting your website to SiteBridge.</p>' . $message; } );
     }
     public function login_context() { if ( $this->is_login() ) { echo '<input type="hidden" name="sitebridge_login" value="1">'; } }
@@ -108,9 +108,7 @@ class SiteBridge_Connect {
         <h1 id="sb-title">Connect your website</h1>
         <p class="sb-lead">Allow <span class="sb-client"><?php echo esc_html( $data['client_name'] ); ?></span> to work with your WordPress website through SiteBridge.</p>
         <div class="sb-site"><span class="sb-site-icon" aria-hidden="true">W</span><div><strong><?php echo esc_html( get_bloginfo( 'name' ) ); ?></strong><span class="sb-url"><?php echo esc_html( home_url() ); ?></span></div></div>
-        <div class="sb-summary"><p>This connects the AI app using the access enabled in your SiteBridge settings.</p><details><summary>View connection details</summary><ul>
-        <?php foreach ( $caps as $cap ) : ?><li><?php echo esc_html( $this->labels()[ $cap ] ); ?></li><?php endforeach; ?>
-        </ul><span class="sb-url">Connection service: <?php echo esc_html( $input['hub'] ); ?></span><p class="sb-hint">App names are supplied by the connecting app. Approve only a connection you requested.</p></details></div>
+        <div class="sb-summary"><span class="sb-label">Connection service</span><span class="sb-url"><?php echo esc_html( $input['hub'] ); ?></span></div>
         <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
         <input type="hidden" name="action" value="sitebridge_connect_decide">
         <input type="hidden" name="local" value="<?php echo esc_attr( $local ); ?>">
@@ -118,7 +116,7 @@ class SiteBridge_Connect {
         <button class="sb-button" name="decision" value="approve">Approve connection <span aria-hidden="true">→</span></button>
         <button class="sb-secondary" name="decision" value="deny">Cancel</button>
         </form>
-        <p class="sb-note">You’re in control. Revoke access anytime in WordPress → Settings → SiteBridge.</p>
+        <p class="sb-note">Manage access and revoke this connection anytime in the SiteBridge plugin settings.</p>
         <?php
         $this->page( 'Approve connection', ob_get_clean() );
         exit;
