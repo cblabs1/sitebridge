@@ -34,6 +34,16 @@ try {
     $stored = sbh_get( $db, 'pending', $pending['request_id'] );
     check( $stored['secret_hash'] === sbh_hash( $query['secret'] ) && ! isset( $stored['secret'] ), 'approval secret stored only as hash' );
     check( strpos( $pending['approval_url'], 'sbk_' ) === false, 'approval URL contains no API key' );
+    $native_state = sbh_random(); $native_cookie = sbh_random(); $request_id = $pending['request_id'];
+    $stored['native_hash'] = sbh_hash( $native_state );
+    sbh_put( $db, 'pending', $request_id, $stored, time() + 600 );
+    sbh_put( $db, 'native', sbh_hash( $native_state ), array( 'request' => $request_id, 'cookie_hash' => sbh_hash( $native_cookie ) ), time() + 600 );
+    rejects( function () use ( $db, $native_state ) { sbh_native_claim( $db, $native_state, 'wrong-cookie' ); }, 'native callback cannot be claimed from another browser' );
+    list( $session, $claimed ) = sbh_native_claim( $db, $native_state, $native_cookie );
+    check( $claimed['status'] === 'processing' && sbh_get( $db, 'native', sbh_hash( $native_state ) ) === null, 'native callback claims and consumes its state atomically' );
+    rejects( function () use ( $db, $native_state, $native_cookie ) { sbh_native_claim( $db, $native_state, $native_cookie ); }, 'native callback state cannot be replayed' );
+    sbh_put( $db, 'native', sbh_hash( $native_state ), array( 'request' => $request_id, 'cookie_hash' => sbh_hash( $native_cookie ) ), time() - 1 );
+    rejects( function () use ( $db, $native_state, $native_cookie ) { sbh_native_claim( $db, $native_state, $native_cookie ); }, 'expired native callback refused' );
     rejects( function () { sbh_public_url( 'http://example.com' ); }, 'HTTP WordPress URLs refused' );
     rejects( function () { sbh_http( 'https://127.0.0.1' ); }, 'loopback SSRF refused before connection' );
     rejects( function () { sbh_http( 'https://169.254.169.254/latest/meta-data' ); }, 'metadata SSRF refused before connection' );

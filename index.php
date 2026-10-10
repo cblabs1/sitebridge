@@ -34,7 +34,7 @@ require_once __DIR__ . '/connections.php';
 set_exception_handler( function ( $error ) use ( $config ) {
     $status = $error instanceof RuntimeException && $error->getCode() >= 400 && $error->getCode() <= 599 ? $error->getCode() : 500;
     error_log( 'SiteBridge hub error: ' . get_class( $error ) );
-    if ( ( $_GET['route'] ?? '' ) === 'authorize' && strpos( $_SERVER['HTTP_ACCEPT'] ?? '', 'text/html' ) !== false ) {
+    if ( in_array( $_GET['route'] ?? '', array( 'authorize', 'connect', 'connected' ), true ) && strpos( $_SERVER['HTTP_ACCEPT'] ?? '', 'text/html' ) !== false ) {
         http_response_code( $status );
         $message = $status === 500 ? 'We couldn’t finish this step. Please try again or contact your site administrator.' : $error->getMessage();
         sbh_html( 'Connection needs attention', '<div class="sb-outcome"><div class="sb-outcome-icon is-error" aria-hidden="true">!</div><p class="sb-eyebrow">Let’s try that again</p><h1 id="sb-title">Connection needs attention</h1><p class="sb-lead">' . htmlspecialchars( $message, ENT_QUOTES, 'UTF-8' ) . '</p>' . sbh_restart_action( $config ) . '<p class="sb-note">If restarting doesn’t help, return to your AI app and start a new connection.</p></div>' );
@@ -157,7 +157,7 @@ function sbh_call_site( $config, $site, $http_method, $path, $query = array(), $
 
 	try {
         $data = sbh_http( $url, $http_method, $body === null ? null : json_encode( $body ), array(
-            'Authorization: Bearer ' . $s['key'], 'Content-Type: application/json', 'Accept: application/json'
+            sbh_site_authorization( $s ), 'Content-Type: application/json', 'Accept: application/json'
         ), (int) ( $config['timeout'] ?? 30 ) );
         return array( 'ok' => true, 'data' => $data );
     } catch ( Throwable $e ) { return array( 'ok' => false, 'error' => $e->getMessage() ); }
@@ -189,11 +189,11 @@ function sbh_site_prop() {
 function sbh_tools() {
 	$site = sbh_site_prop();
 	return array(
-        array( 'name' => 'connect_site', 'description' => 'Connect a WordPress site. Returns a temporary approval URL. Give that URL to the user; only a WordPress administrator can approve. Never request passwords or API keys. After approval call connection_status.',
+        array( 'name' => 'connect_site', 'description' => 'Connect a WordPress site. Returns a temporary approval URL. Give that URL to the user; the user must open it in their own browser and approve the native WordPress Application Password screen as an administrator. Do not open or approve it on the user’s behalf. Never request passwords or API keys. After approval call connection_status.',
             'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site_url' => array( 'type' => 'string', 'description' => 'Final public HTTPS WordPress home URL.' ) ), 'required' => array( 'site_url' ) ) ),
         array( 'name' => 'connection_status', 'description' => 'Check a connection request after the user opens its approval link. Returns pending, connected, denied, failed, or expired.',
             'inputSchema' => array( 'type' => 'object', 'properties' => array( 'request_id' => array( 'type' => 'string' ) ), 'required' => array( 'request_id' ) ) ),
-        array( 'name' => 'disconnect_site', 'description' => 'Remove this site connection from the current client authorization. The WordPress administrator can also revoke its key in Settings > SiteBridge.',
+        array( 'name' => 'disconnect_site', 'description' => 'Remove this hub connection and attempt to revoke its native WordPress application password. Check wordpress_revoked; if false, revoke in WordPress Users > Profile. Legacy custom keys must also be revoked in WordPress Settings > SiteBridge.',
             'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => sbh_site_prop() ), 'required' => array( 'site' ) ) ),
 		array(
 			'name'        => 'list_sites',
@@ -314,8 +314,14 @@ function sbh_dispatch_tool( $config, $name, $args ) {
             $db = sbh_db( $config );
             $row = sbh_get( $db, 'connection', $site );
             if ( ! $row || ! hash_equals( $row['owner'], $config['_identity']['owner'] ) ) { return sbh_tool_result( 'Unknown site connection.', true ); }
+            $out = array( 'disconnected' => true );
+            if ( ( $row['auth_type'] ?? '' ) === 'application_password' ) {
+                $result = sbh_call_site( $config, $site, 'POST', '/connect/revoke' );
+                $out['wordpress_revoked'] = $result['ok'] && ! empty( $result['data']['revoked'] );
+                if ( ! $out['wordpress_revoked'] ) { $out['message'] = 'The hub connection was removed, but WordPress revocation could not be confirmed. Revoke the SiteBridge Application Password in WordPress Users > Profile if it is still listed.'; }
+            }
             sbh_delete( $db, 'connection', $site );
-            return sbh_tool_result( array( 'disconnected' => true ) );
+            return sbh_tool_result( $out );
 		case 'list_sites':
 			$out = array();
 			foreach ( $config['sites'] as $key => $s ) {
@@ -421,7 +427,7 @@ switch ( $method ) {
 			array(
 				'protocolVersion' => $client_ver,
 				'capabilities'    => array( 'tools' => new stdClass() ),
-				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.4.1' ),
+				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.5.0' ),
 			)
 		);
 		break;

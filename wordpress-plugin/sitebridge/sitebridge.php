@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       SiteBridge — AI Site Connector
  * Plugin URI:        https://example.com/sitebridge
- * Description:       Exposes safe, API-key-protected REST endpoints so an external MCP server / AI agent can manage this WordPress site (site info, content, WooCommerce, options, and guarded DB/code editing). A WPVibe-style connector you own.
- * Version:           0.4.0
+ * Description:       Exposes permission-controlled REST endpoints so an external MCP server / AI agent can manage this WordPress site (site info, content, WooCommerce, options, and guarded DB/code editing). A WPVibe-style connector you own.
+ * Version:           0.5.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Your Agency
@@ -11,8 +11,9 @@
  * Text Domain:       sitebridge
  *
  * SECURITY MODEL (read this):
- *  - Every endpoint requires a valid API key (Bearer token) that you generate in
- *    Settings → SiteBridge. Keys are shown once and stored only as SHA-256 hashes.
+ *  - Protected endpoints require a custom API key or a native SiteBridge Application
+ *    Password. Plugin permissions are checked on every request; native credentials
+ *    are restricted to SiteBridge REST endpoints while this plugin remains active.
  *  - Every capability is individually toggleable and OFF by default except read-only
  *    site info. Write, DB-write and code-edit capabilities must be explicitly enabled.
  *  - DB-write and code-edit are inherently dangerous; they are heavily guarded, disabled
@@ -23,9 +24,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // No direct access.
 }
 
-define( 'SITEBRIDGE_VERSION', '0.4.0' );
+define( 'SITEBRIDGE_VERSION', '0.5.0' );
 define( 'SITEBRIDGE_FILE', __FILE__ );
 define( 'SITEBRIDGE_DIR', plugin_dir_path( __FILE__ ) );
+define( 'SITEBRIDGE_APP_ID', '6c78a910-07e3-4a44-a3fa-299b20b471c5' );
 define( 'SITEBRIDGE_NS', 'sitebridge/v1' );
 define( 'SITEBRIDGE_OPT_SETTINGS', 'sitebridge_settings' );
 define( 'SITEBRIDGE_OPT_KEYS', 'sitebridge_keys' );
@@ -75,6 +77,7 @@ register_activation_hook( __FILE__, 'sitebridge_activate' );
  * Boot.
  */
 function sitebridge_boot() {
+	SiteBridge_Auth::register_application_password_hooks();
 	new SiteBridge_Settings();
 	new SiteBridge_Connect();
 	add_action(

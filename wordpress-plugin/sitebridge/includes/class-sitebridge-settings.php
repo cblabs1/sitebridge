@@ -46,6 +46,11 @@ class SiteBridge_Settings {
 		}
 		$settings  = sitebridge_get_settings();
 		$keys      = get_option( SITEBRIDGE_OPT_KEYS, array() );
+		foreach ( WP_Application_Passwords::get_user_application_passwords( get_current_user_id() ) as $application ) {
+            if ( ( $application['app_id'] ?? '' ) === SITEBRIDGE_APP_ID ) {
+                $keys[ 'app_' . $application['uuid'] ] = array( 'label' => $application['name'] . ' (WordPress application password)', 'created' => gmdate( 'Y-m-d H:i:s', $application['created'] ), 'last_used' => empty( $application['last_used'] ) ? null : gmdate( 'Y-m-d H:i:s', $application['last_used'] ) );
+            }
+        }
 		$new_key   = get_transient( 'sitebridge_new_key' );
 		delete_transient( 'sitebridge_new_key' );
 		$rest_base = esc_url( rest_url( SITEBRIDGE_NS ) );
@@ -65,7 +70,7 @@ class SiteBridge_Settings {
 			<?php endif; ?>
 
 			<h2>Access settings</h2>
-            <p>Set access here once. New connections automatically use the enabled permissions when you approve. Existing keys keep their approved scopes; reconnect to grant additional access.</p>
+            <p>Set access here once. Native WordPress connections follow these settings on every request. Existing custom API keys also keep their individual scopes.</p>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="sitebridge_save">
 				<?php wp_nonce_field( 'sitebridge_save' ); ?>
@@ -90,7 +95,7 @@ class SiteBridge_Settings {
 
 			<hr>
 			<h2>Connected AI clients and API keys</h2>
-			<p>To connect through your AI app, ask it to connect this website and open its approval link. No manual key copying is needed. Browser-approved connections appear below; revoke their key to stop access.</p>
+			<p>To connect through your AI app, ask it to connect this website and open its approval link. No manual key copying is needed. Your WordPress application password connections appear below alongside custom API keys. Revoke a connection here or in your WordPress user profile to stop access.</p>
             <details class="sb-admin-manual"><summary>Advanced: create a manual API key</summary><p>Browser approval handles keys automatically. Use manual keys only for a custom integration.</p><p>API endpoint: <code><?php echo $rest_base; ?></code></p>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-bottom:16px;">
 				<input type="hidden" name="action" value="sitebridge_genkey">
@@ -182,7 +187,11 @@ class SiteBridge_Settings {
 			wp_die( 'Not allowed' );
 		}
 		$id = isset( $_POST['id'] ) ? sanitize_text_field( wp_unslash( $_POST['id'] ) ) : '';
-		SiteBridge_Auth::revoke_key( $id );
+		if ( strpos( $id, 'app_' ) === 0 ) {
+            $uuid = substr( $id, 4 );
+            $application = WP_Application_Passwords::get_user_application_password( get_current_user_id(), $uuid );
+            if ( $application && ( $application['app_id'] ?? '' ) === SITEBRIDGE_APP_ID ) { WP_Application_Passwords::delete_application_password( get_current_user_id(), $uuid ); }
+        } else { SiteBridge_Auth::revoke_key( $id ); }
 		wp_safe_redirect( admin_url( 'options-general.php?page=sitebridge&revoked=1' ) );
 		exit;
 	}

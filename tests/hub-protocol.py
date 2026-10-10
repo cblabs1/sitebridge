@@ -14,6 +14,24 @@ with tempfile.TemporaryDirectory(prefix='sbh-http-') as work:
     web.mkdir()
     for name in ['index.php', 'connections.php', 'connection-ui.css', '.htaccess']:
         shutil.copy2(hub/name, web/name)
+    production_connections = (web/'connections.php').read_text()
+    (web/'connections.php').write_text(production_connections.replace('function sbh_http(', 'function sbh_real_http(', 1) + r"""
+function sbh_http($url, $method='GET', $body=null, $headers=array(), $timeout=20) {
+    if (strpos($url, 'https://alice.example.com/') === 0) {
+        if (strpos($url, '/connect/info') !== false) { return array('app_id'=>'6c78a910-07e3-4a44-a3fa-299b20b471c5','available'=>true,'site_url'=>'https://alice.example.com','authorization_url'=>'https://alice.example.com/wp-admin/authorize-application.php'); }
+        if (strpos($url, '/connect/verify') !== false) {
+            if (!in_array('Authorization: Basic '.base64_encode('admin:'.str_repeat('A',24)),$headers,true)) { sbh_fail('Invalid fixture credential.',403); }
+            return array('app_id'=>'6c78a910-07e3-4a44-a3fa-299b20b471c5','site_url'=>'https://alice.example.com','uuid'=>'fixture-uuid','capabilities'=>array('site_read'));
+        }
+        if (strpos($url, '/connect/revoke') !== false) { return array('revoked'=>true); }
+        if (strpos($url, '/site') !== false) {
+            if (!in_array('Authorization: Basic '.base64_encode('admin:'.str_repeat('A',24)),$headers,true)) { sbh_fail('Wrong proxy authentication.',403); }
+            return array('name'=>'Native fixture site');
+        }
+    }
+    return sbh_real_http($url,$method,$body,$headers,$timeout);
+}
+""")
     config = {'public_url':'https://hub.example.com', 'encryption_key':os.urandom(32).hex(), 'storage_path':str(private/'connections.sqlite'), 'master_token':'test-admin', 'sites':{'manual':{'url':'https://manual.example.com','key':'sbk_test'}}}
     (web/'config.php').write_text('<?php return json_decode('+json.dumps(json.dumps(config))+', true);')
     # Fixture setup runs outside the webroot and only seeds authorization grants.
@@ -56,6 +74,10 @@ if ($input['action'] === 'code') {
         try: body=json.loads(raw)
         except ValueError: body=raw
         return response.status,response.headers,body
+    def rpc(name,args,token):
+        status,headers,body=request(data={'jsonrpc':'2.0','id':8,'method':'tools/call','params':{'name':name,'arguments':args}},token=token)
+        result=body.get('result',{})
+        return status,headers,json.loads(result['content'][0]['text']) if result.get('content') else body
     try:
         for _ in range(50):
             try: request(); break
@@ -98,7 +120,7 @@ if ($input['action'] === 'code') {
         # Test server is HTTP; send its production Secure cookie explicitly rather than weakening it.
         cookie=fresh_headers['Set-Cookie'].split(';',1)[0]
         status,headers,body=request('/?route=authorize',fresh_post,form=True,extra_headers={'Cookie':cookie})
-        check(status==200 and 'http-equiv="refresh"' in body and '/wp-admin/admin-post.php?' in body and 'Location' not in headers,'browser handoff avoids CSP-blocked form redirects and includes a fallback link')
+        check(status==200 and 'http-equiv="refresh"' in body and 'route=connect' in body and 'Location' not in headers,'browser handoff avoids CSP-blocked form redirects and includes a fallback link')
         approval=re.search(r'<a class="sb-button" href="([^"]+)"',body).group(1)
         status,_,body=request('/?route=authorize',fresh_post,form=True,extra_headers={'Cookie':cookie,'Accept':'text/html'})
         check(status==200 and approval in body,'repeated submission resumes the same approval request')
@@ -147,6 +169,69 @@ if ($input['action'] === 'code') {
         status,_,body=request(data=poll,token=bob['access_token'])
         check(json.loads(body['result']['content'][0]['text'])['status']=='expired','other principal cannot inspect pending request')
         from urllib.parse import parse_qs,urlparse
+        alice=tokens['access_token']
+        native_link=urlparse(pending['approval_url'])
+        status,start_headers,_=request('/?'+native_link.query)
+        native_url=urlparse(start_headers.get('Location',''))
+        native_args=parse_qs(native_url.query)
+        check(status==303 and native_url.path=='/wp-admin/authorize-application.php' and native_args['app_id']==['6c78a910-07e3-4a44-a3fa-299b20b471c5'],'native approval uses the WordPress authorization screen')
+        native_cookie=start_headers['Set-Cookie'].split(';',1)[0]
+        callback=urlparse(native_args['success_url'][0])
+        callback_args=parse_qs(callback.query)
+        callback_args={k:v[0] for k,v in callback_args.items()}
+        callback_args.update(site_url='https://alice.example.com',user_login='admin',password='A'*24)
+        status,bad_headers,_=request('/?'+urlencode(callback_args))
+        check(status==303 and 'password' not in bad_headers['Location'],'unbound callback leaves the credential URL without exposing credentials')
+        status,finish_headers,_=request('/?'+urlencode(callback_args),extra_headers={'Cookie':native_cookie})
+        check(status==303 and 'route=connected' in finish_headers['Location'] and 'password' not in finish_headers['Location'],'valid native approval verifies credentials then redirects to a clean result URL')
+        result_path='/?'+urlparse(finish_headers['Location']).query
+        status,_,finished=request(result_path,extra_headers={'Cookie':native_cookie})
+        check(status==200 and 'You’re connected' in finished and 'A'*24 not in finished,'connected screen contains no WordPress password')
+        status,_,_=request(result_path)
+        check(status==403,'connection result is bound to the approving browser')
+        status,replay_headers,_=request('/?'+urlencode(callback_args),extra_headers={'Cookie':native_cookie})
+        status,_,replayed=request('/?'+urlparse(replay_headers['Location']).query)
+        check('You’re connected' not in replayed,'native callback replay cannot reconnect')
+        status,_,native_status=rpc('connection_status',{'request_id':pending['request_id']},alice)
+        check(native_status['status']=='connected','native approval updates the agent connection status')
+        native_site=native_status['site']
+        status,_,native_info=rpc('site_info',{'site':native_site},alice)
+        check(native_info.get('name')=='Native fixture site','native WordPress requests use HTTP Basic authentication')
+        status,_,native_disconnect=rpc('disconnect_site',{'site':native_site},alice)
+        check(native_disconnect.get('disconnected') is True and native_disconnect.get('wordpress_revoked') is True,'disconnect revokes the native application password and removes the connection')
+        from html import unescape
+        oauth_link=urlparse(unescape(approval))
+        status,oauth_start,_=request('/?'+oauth_link.query)
+        oauth_args=parse_qs(urlparse(oauth_start['Location']).query)
+        oauth_callback={k:v[0] for k,v in parse_qs(urlparse(oauth_args['success_url'][0]).query).items()}
+        oauth_callback.update(site_url='https://alice.example.com',user_login='admin',password='A'*24)
+        oauth_cookie=oauth_start['Set-Cookie'].split(';',1)[0]
+        status,oauth_finish,_=request('/?'+urlencode(oauth_callback),extra_headers={'Cookie':oauth_cookie})
+        status,_,oauth_result=request('/?'+urlparse(oauth_finish['Location']).query,extra_headers={'Cookie':oauth_cookie})
+        oauth_return=unescape(re.search(r'<a class="sb-button" href="([^"]+)"',oauth_result).group(1))
+        oauth_return_args=parse_qs(urlparse(oauth_return).query)
+        check('http-equiv="refresh"' in oauth_result and oauth_return_args['state']==['original-state'],'native OAuth completion automatically returns to the registered AI client with its original state')
+        status,_,native_tokens=request('/?route=token',{'grant_type':'authorization_code','client_id':client_id,'code':oauth_return_args['code'][0],'redirect_uri':client['redirect_uris'][0],'code_verifier':verifier},form=True)
+        check(status==200 and 'access_token' in native_tokens,'native approval completes the AI OAuth PKCE exchange')
+        check(b'A'*24 not in (private/'connections.sqlite').read_bytes(),'native password is encrypted at rest')
+        def native_attempt(extra):
+            _,_,p=rpc('connect_site',{'site_url':'https://alice.example.com'},alice)
+            _,h,_=request('/?'+urlparse(p['approval_url']).query)
+            cb={k:v[0] for k,v in parse_qs(urlparse(parse_qs(urlparse(h['Location']).query)['success_url'][0]).query).items()}
+            cb.update(extra)
+            cookie=h['Set-Cookie'].split(';',1)[0]
+            _,done,_=request('/?'+urlencode(cb),extra_headers={'Cookie':cookie})
+            _,_,result=request('/?'+urlparse(done['Location']).query,extra_headers={'Cookie':cookie})
+            _,_,state=rpc('connection_status',{'request_id':p['request_id']},alice)
+            return result,state
+        denied,denied_status=native_attempt({'denied':'1'})
+        check('Connection canceled' in denied and denied_status['status']=='denied','native cancellation grants no connection')
+        invalid,invalid_status=native_attempt({'site_url':'https://other.example.com','user_login':'admin','password':'A'*24})
+        check('You’re connected' not in invalid and invalid_status['status']=='failed','native callback refuses a different WordPress site')
+        invalid,invalid_status=native_attempt({'site_url':'https://alice.example.com','user_login':'admin','password':'B'*24})
+        check('You’re connected' not in invalid and invalid_status['status']=='failed','unverified native credentials cannot create a connection')
+        status,_,second_pending=rpc('connect_site',{'site_url':'https://alice.example.com'},alice)
+        pending=second_pending
         query=parse_qs(urlparse(pending['approval_url']).query)
         status,_,body=request('/?route=callback',{'request':pending['request_id'],'secret':'wrong','decision':'deny'})
         check(status==403,'forged callback rejected')

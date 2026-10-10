@@ -11,6 +11,35 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class SiteBridge_Auth {
 
+    protected static $application = null;
+    protected static $application_user = null;
+
+    public static function register_application_password_hooks() {
+        add_action( 'wp_authenticate_application_password_errors', array( __CLASS__, 'check_application' ), 10, 4 );
+        add_action( 'application_password_did_authenticate', array( __CLASS__, 'capture_application' ), 10, 2 );
+        add_filter( 'rest_pre_dispatch', array( __CLASS__, 'restrict_application_routes' ), 5, 3 );
+    }
+    public static function check_application( $error, $user, $item, $password ) {
+        if ( ( $item['app_id'] ?? '' ) !== SITEBRIDGE_APP_ID ) { return; }
+        $settings = sitebridge_get_settings();
+        if ( ! defined( 'REST_REQUEST' ) || ! REST_REQUEST || ! user_can( $user, 'manage_options' ) || empty( $settings['enabled'] ) ) {
+            $error->add( 'sitebridge_application_forbidden', 'This SiteBridge application password requires an administrator and an enabled SiteBridge REST API.', array( 'status' => 403 ) );
+        }
+    }
+    public static function capture_application( $user, $item ) {
+        self::$application = ( $item['app_id'] ?? '' ) === SITEBRIDGE_APP_ID ? $item : null;
+        self::$application_user = self::$application ? $user : null;
+    }
+    public static function restrict_application_routes( $result, $server, $request ) {
+        if ( self::$application && strpos( $request->get_route(), '/' . SITEBRIDGE_NS . '/' ) !== 0 ) {
+            return new WP_Error( 'sitebridge_application_scope', 'This application password is restricted to SiteBridge endpoints.', array( 'status' => 403 ) );
+        }
+        return $result;
+    }
+    public static function current_application() {
+        return self::$application && self::$application_user && get_current_user_id() === self::$application_user->ID && current_user_can( 'manage_options' ) ? self::$application : null;
+    }
+
 	/**
 	 * The key record validated for the current request (or null).
 	 *
@@ -82,6 +111,10 @@ class SiteBridge_Auth {
 
 			$raw = self::bearer_token( $request );
 			$rec = self::match_key( $raw );
+            $application = self::current_application();
+            if ( ! $rec && $application ) {
+                $rec = array( 'id' => $application['uuid'], 'label' => $application['name'], 'native' => true );
+            }
 			if ( ! $rec ) {
 				SiteBridge_Logger::log( 'auth', 'denied', 'Invalid or missing API key' );
 				return new WP_Error( 'sitebridge_unauthorized', 'Invalid or missing API key.', array( 'status' => 401 ) );
@@ -100,7 +133,7 @@ class SiteBridge_Auth {
 			}
 
 			self::$current_key = $rec;
-			self::touch_key( $rec['id'] );
+			if ( empty( $rec['native'] ) ) { self::touch_key( $rec['id'] ); }
 			return true;
 		};
 	}

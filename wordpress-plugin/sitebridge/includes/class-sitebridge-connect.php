@@ -12,12 +12,34 @@ class SiteBridge_Connect {
         add_filter( 'login_headertext', array( $this, 'login_title' ) );
         add_filter( 'login_headerurl', array( $this, 'login_url' ) );
         add_action( 'rest_api_init', function () {
+            register_rest_route( SITEBRIDGE_NS, '/connect/info', array( 'methods' => 'GET', 'callback' => array( $this, 'native_info' ), 'permission_callback' => '__return_true' ) );
+            register_rest_route( SITEBRIDGE_NS, '/connect/verify', array( 'methods' => 'GET', 'callback' => array( $this, 'native_verify' ), 'permission_callback' => SiteBridge_Auth::require_cap( 'site_read' ) ) );
+            register_rest_route( SITEBRIDGE_NS, '/connect/revoke', array( 'methods' => 'POST', 'callback' => array( $this, 'native_revoke' ), 'permission_callback' => SiteBridge_Auth::require_cap( 'site_read' ) ) );
             register_rest_route( SITEBRIDGE_NS, '/connect/exchange', array(
                 'methods' => 'POST', 'callback' => array( $this, 'exchange' ),
                 // The expiring, one-time code is the credential, not a WP cookie.
                 'permission_callback' => '__return_true',
             ) );
         } );
+    }
+    public function native_info() {
+        $settings = sitebridge_get_settings();
+        $response = new WP_REST_Response( array( 'version' => SITEBRIDGE_VERSION, 'app_id' => SITEBRIDGE_APP_ID, 'available' => wp_is_application_passwords_available() && ! empty( $settings['enabled'] ) && ! empty( $settings['site_read'] ), 'authorization_url' => admin_url( 'authorize-application.php' ), 'site_url' => rtrim( home_url(), '/' ) ) );
+        $response->header( 'Cache-Control', 'no-store' );
+        return $response;
+    }
+    public function native_verify() {
+        $application = SiteBridge_Auth::current_application();
+        if ( ! $application ) { return new WP_Error( 'sitebridge_native_required', 'Authorize a SiteBridge application password with an administrator account.', array( 'status' => 403 ) ); }
+        $response = new WP_REST_Response( array( 'site_url' => rtrim( home_url(), '/' ), 'app_id' => $application['app_id'], 'uuid' => $application['uuid'], 'capabilities' => $this->enabled_caps( sitebridge_get_settings() ) ) );
+        $response->header( 'Cache-Control', 'no-store' );
+        return $response;
+    }
+    public function native_revoke() {
+        $application = SiteBridge_Auth::current_application();
+        if ( ! $application ) { return new WP_Error( 'sitebridge_native_required', 'No SiteBridge application password was authenticated.', array( 'status' => 403 ) ); }
+        $deleted = WP_Application_Passwords::delete_application_password( get_current_user_id(), $application['uuid'] );
+        return is_wp_error( $deleted ) ? $deleted : new WP_REST_Response( array( 'revoked' => true ) );
     }
     private function input() {
         $hub = isset( $_GET['hub'] ) ? esc_url_raw( wp_unslash( $_GET['hub'] ) ) : '';

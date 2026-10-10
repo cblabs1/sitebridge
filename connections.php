@@ -39,6 +39,7 @@ function sbh_http( $url, $method = 'GET', $body = null, $headers = array(), $tim
     $response = '';
     curl_setopt_array( $ch, array(
         CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_USERAGENT => 'SiteBridge/0.5.0 (+https://github.com/cblabs1/sitebridge)',
         CURLOPT_HTTPHEADER => $headers,
         CURLOPT_TIMEOUT => $timeout,
         CURLOPT_CONNECTTIMEOUT => 8,
@@ -58,7 +59,9 @@ function sbh_http( $url, $method = 'GET', $body = null, $headers = array(), $tim
     $status = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
     curl_close( $ch );
     if ( $ok === false ) { sbh_fail( 'The remote request failed or exceeded the response limit.', 502 ); }
-    if ( $status < 200 || $status >= 300 ) { sbh_fail( 'Remote endpoint returned HTTP ' . $status . '. Use its final HTTPS URL.', 502 ); }
+    if ( $status >= 300 && $status < 400 ) { sbh_fail( 'Remote endpoint redirected (HTTP ' . $status . '). Use its final HTTPS URL.', 502 ); }
+    if ( $status === 403 || $status === 406 ) { sbh_fail( 'The remote site refused the request (HTTP ' . $status . '). Check its authentication, SiteBridge settings, and hosting firewall logs.', 502 ); }
+    if ( $status < 200 || $status >= 300 ) { sbh_fail( 'Remote endpoint returned HTTP ' . $status . '. Check the installed plugin version and hosting logs.', 502 ); }
     $data = json_decode( $response, true );
     if ( ! is_array( $data ) ) { sbh_fail( 'The remote endpoint did not return JSON.', 502 ); }
     return $data;
@@ -157,8 +160,16 @@ function sbh_pending( $config, $owner, $site_url, $client_name, $oauth = null ) 
     $id = sbh_random(); $secret = sbh_random();
     $row = array( 'owner' => $owner, 'site_url' => $site_url, 'client_name' => $client_name, 'secret_hash' => sbh_hash( $secret ), 'status' => 'pending', 'expires' => time() + 600, 'oauth' => $oauth );
     sbh_put( $db, 'pending', $id, $row, $row['expires'] );
-    $url = $site_url . '/wp-admin/admin-post.php?' . http_build_query( array( 'action' => 'sitebridge_connect', 'hub' => sbh_base( $config ), 'request' => $id, 'secret' => $secret ), '', '&', PHP_QUERY_RFC3986 );
-    return array( 'request_id' => $id, 'approval_url' => $url, 'expires_in' => 600, 'status' => 'pending', 'message' => 'Open approval_url, sign in as a WordPress administrator, review permissions, and approve. Then call connection_status with request_id.' );
+    $url = sbh_base( $config ) . '/?' . http_build_query( array( 'route' => 'connect', 'request' => $id, 'secret' => $secret ), '', '&', PHP_QUERY_RFC3986 );
+    return array( 'request_id' => $id, 'approval_url' => $url, 'expires_in' => 600, 'status' => 'pending', 'message' => 'Open approval_url, sign in as a WordPress administrator, and approve the native WordPress Application Password request. Only the user should approve; do not approve on their behalf. Then call connection_status with request_id.' );
+}
+function sbh_site_authorization( $site ) {
+    if ( ( $site['auth_type'] ?? '' ) === 'application_password' ) {
+        $credential = json_decode( $site['key'], true );
+        if ( ! is_array( $credential ) || ! isset( $credential['username'], $credential['password'] ) ) { sbh_fail( 'Invalid stored WordPress credential.', 500 ); }
+        return 'Authorization: Basic ' . base64_encode( $credential['username'] . ':' . $credential['password'] );
+    }
+    return 'Authorization: Bearer ' . $site['key'];
 }
 function sbh_connections( $config, $owner ) {
     $db = sbh_db( $config );
@@ -166,7 +177,7 @@ function sbh_connections( $config, $owner ) {
     $out = array();
     foreach ( $q as $row ) {
         $data = json_decode( $row['data'], true );
-        if ( hash_equals( $data['owner'], $owner ) ) { $out[ $row['id'] ] = array( 'url' => $data['url'], 'key' => sbh_decrypt( $config, $data['key'] ) ); }
+        if ( hash_equals( $data['owner'], $owner ) ) { $out[ $row['id'] ] = array( 'url' => $data['url'], 'key' => sbh_decrypt( $config, $data['key'] ), 'auth_type' => $data['auth_type'] ?? 'bearer' ); }
     }
     return $out;
 }
@@ -190,7 +201,7 @@ function sbh_html( $title, $body, $step = 1, $navigate = null ) {
 }
 function sbh_landing( $config ) {
     $url = sbh_base( $config ) . '/';
-    sbh_html( 'Connect WordPress to your AI', '<p class="sb-eyebrow">WordPress, meet your AI</p><h1 id="sb-title">A little bridge.<br>A lot of possibilities.</h1><p class="sb-lead">Connect your WordPress website to an AI app you use. Manage content, work with products, and get things done through conversation.</p><label class="sb-label" for="sb-endpoint">Your MCP server URL</label><input class="sb-input" id="sb-endpoint" value="' . htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' ) . '" readonly><p class="sb-hint">Paste this URL into your AI app’s remote MCP or connector settings and choose OAuth sign-in.</p><ul class="sb-features"><li>Connect from an AI app that supports remote MCP</li><li>Approve once in your own WordPress dashboard</li><li>Manage access from your SiteBridge settings</li></ul><a class="sb-button" href="https://github.com/cblabs1/sitebridge/blob/main/downloads/sitebridge-plugin_0.4.0.zip">Get the WordPress plugin <span aria-hidden="true">↗</span></a><p class="sb-help"><a href="https://github.com/cblabs1/sitebridge#connect-an-ai-client">Read the connection guide</a></p>', 0 );
+    sbh_html( 'Connect WordPress to your AI', '<p class="sb-eyebrow">WordPress, meet your AI</p><h1 id="sb-title">A little bridge.<br>A lot of possibilities.</h1><p class="sb-lead">Connect your WordPress website to an AI app you use. Manage content, work with products, and get things done through conversation.</p><label class="sb-label" for="sb-endpoint">Your MCP server URL</label><input class="sb-input" id="sb-endpoint" value="' . htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' ) . '" readonly><p class="sb-hint">Paste this URL into your AI app’s remote MCP or connector settings and choose OAuth sign-in.</p><ul class="sb-features"><li>Connect from an AI app that supports remote MCP</li><li>Approve once in your own WordPress dashboard</li><li>Manage access from your SiteBridge settings</li></ul><a class="sb-button" href="https://github.com/cblabs1/sitebridge/blob/main/downloads/sitebridge-plugin_0.5.0.zip">Get the WordPress plugin <span aria-hidden="true">↗</span></a><p class="sb-help"><a href="https://github.com/cblabs1/sitebridge#connect-an-ai-client">Read the connection guide</a></p>', 0 );
 }
 function sbh_restart_action( $config ) {
     $id = $_POST['restart'] ?? $_GET['restart'] ?? '';
@@ -208,6 +219,117 @@ function sbh_access_token( $db, $owner, $client_id, $resource, $family = null ) 
     sbh_put( $db, 'refresh', sbh_hash( $refresh ), $row, time() + 30 * 86400 );
     return array( 'access_token' => $access, 'refresh_token' => $refresh, 'token_type' => 'Bearer', 'expires_in' => 3600, 'scope' => 'sitebridge' );
 }
+/** WordPress's native approval callback is bound to the browser that opened the link. */
+function sbh_native_claim( $db, $state, $cookie ) {
+    if ( ! is_string( $state ) || ! preg_match( '/^[a-f0-9]{64}$/', $state ) ) { sbh_fail( 'Invalid approval session.', 403 ); }
+    $db->exec( 'BEGIN IMMEDIATE' );
+    try {
+        $session = sbh_get( $db, 'native', sbh_hash( $state ) );
+        if ( ! $session || ! hash_equals( $session['cookie_hash'], sbh_hash( $cookie ) ) ) { sbh_fail( 'Approval session expired or belongs to another browser. Start again in the same browser.', 403 ); }
+        $row = sbh_get( $db, 'pending', $session['request'] );
+        if ( ! $row || $row['status'] !== 'pending' || ! hash_equals( $row['native_hash'] ?? '', sbh_hash( $state ) ) ) { sbh_fail( 'This approval request expired or was already completed.', 409 ); }
+        $row['status'] = 'processing';
+        sbh_put( $db, 'pending', $session['request'], $row, $row['expires'] );
+        sbh_delete( $db, 'native', sbh_hash( $state ) );
+        $db->exec( 'COMMIT' );
+        return array( $session, $row );
+    } catch ( Throwable $error ) { $db->exec( 'ROLLBACK' ); throw $error; }
+}
+function sbh_oauth_return( $db, $config, $row ) {
+    if ( empty( $row['oauth'] ) ) { return null; }
+    $oauth = $row['oauth']; $base = sbh_base( $config );
+    $params = array( 'state' => $oauth['state'], 'iss' => $base );
+    if ( $row['status'] === 'connected' ) {
+        $code = sbh_random();
+        sbh_put( $db, 'code', sbh_hash( $code ), array( 'owner' => $row['owner'], 'client_id' => $oauth['client_id'], 'redirect_uri' => $oauth['redirect_uri'], 'challenge' => $oauth['challenge'], 'resource' => $base . '/' ), time() + 120 );
+        $params['code'] = $code;
+    } else { $params['error'] = 'access_denied'; }
+    return $oauth['redirect_uri'] . ( strpos( $oauth['redirect_uri'], '?' ) === false ? '?' : '&' ) . http_build_query( $params, '', '&', PHP_QUERY_RFC3986 );
+}
+function sbh_native_routes( $config, $route, $db ) {
+    $base = sbh_base( $config );
+    if ( $route === 'connect' ) {
+        $id = $_GET['request'] ?? '';
+        $row = sbh_get( $db, 'pending', $id );
+        if ( ! $row || $row['status'] !== 'pending' || ! hash_equals( $row['secret_hash'], sbh_hash( $_GET['secret'] ?? '' ) ) ) { sbh_fail( 'Connection link expired or was already completed. Ask your AI app for a fresh link.', 403 ); }
+        try { $info = sbh_http( $row['site_url'] . '/wp-json/sitebridge/v1/connect/info' ); }
+        catch ( RuntimeException $error ) {
+            if ( strpos( $error->getMessage(), 'HTTP 404' ) !== false ) { sbh_fail( 'Update the WordPress SiteBridge plugin to 0.5.0 or newer, then request a fresh connection link.', 409 ); }
+            throw $error;
+        }
+        $app_id = '6c78a910-07e3-4a44-a3fa-299b20b471c5';
+        if ( ( $info['app_id'] ?? '' ) !== $app_id || empty( $info['available'] ) || rtrim( $info['site_url'] ?? '', '/' ) !== $row['site_url'] ) { sbh_fail( 'Install SiteBridge 0.5.0 or newer and enable WordPress Application Passwords on this website.', 409 ); }
+        $authorization = $info['authorization_url'] ?? '';
+        sbh_public_url( $authorization );
+        if ( $authorization !== $row['site_url'] . '/wp-admin/authorize-application.php' ) { sbh_fail( 'WordPress returned an unexpected authorization address.', 502 ); }
+        $state = sbh_random(); $csrf = sbh_random(); $cookie_name = 'sbh_native_' . substr( $id, 0, 16 );
+        $db->exec( 'BEGIN IMMEDIATE' );
+        try {
+            $row = sbh_get( $db, 'pending', $id );
+            if ( ! $row || $row['status'] !== 'pending' ) { sbh_fail( 'Connection already processed.', 409 ); }
+            if ( isset( $row['native_hash'] ) ) { sbh_delete( $db, 'native', $row['native_hash'] ); }
+            $row['native_hash'] = sbh_hash( $state );
+            sbh_put( $db, 'pending', $id, $row, $row['expires'] );
+            sbh_put( $db, 'native', sbh_hash( $state ), array( 'request' => $id, 'cookie_name' => $cookie_name, 'cookie_hash' => sbh_hash( $csrf ) ), $row['expires'] );
+            $db->exec( 'COMMIT' );
+        } catch ( Throwable $error ) { $db->exec( 'ROLLBACK' ); throw $error; }
+        setcookie( $cookie_name, $csrf, array( 'expires' => $row['expires'], 'path' => '/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax' ) );
+        $callback = $base . '/?route=native-return&state=' . $state;
+        $url = $authorization . '?' . http_build_query( array( 'app_name' => 'SiteBridge — ' . $row['client_name'] . ' — ' . substr( $id, 0, 8 ), 'app_id' => $app_id, 'success_url' => $callback, 'reject_url' => $callback . '&denied=1' ), '', '&', PHP_QUERY_RFC3986 );
+        header( 'Referrer-Policy: no-referrer' ); header( 'Location: ' . $url, true, 303 ); exit;
+    }
+    if ( $route === 'native-return' ) {
+        // Always leave the credential-bearing callback URL before rendering a document.
+        $ticket = sbh_random(); $result = array( 'status' => 'failed', 'message' => 'This approval session expired. Start a new connection from your AI app.' );
+        $session = null; $row = null; $connection_data = null;
+        try {
+            $state = $_GET['state'] ?? '';
+            $saved = is_string( $state ) ? sbh_get( $db, 'native', sbh_hash( $state ) ) : null;
+            $cookie = $saved ? ( $_COOKIE[ $saved['cookie_name'] ] ?? '' ) : '';
+            list( $session, $row ) = sbh_native_claim( $db, $state, $cookie );
+            if ( isset( $_GET['denied'] ) || ( $_GET['success'] ?? '' ) === 'false' ) { $row['status'] = 'denied'; }
+            else {
+                $username = $_GET['user_login'] ?? ''; $password = $_GET['password'] ?? '';
+                if ( ! is_string( $username ) || $username === '' || strlen( $username ) > 240 || preg_match( '/[:\x00-\x1f\x7f]/', $username ) || ! is_string( $password ) || ! preg_match( '/^[a-zA-Z0-9]{24}$/', str_replace( ' ', '', $password ) ) || rtrim( $_GET['site_url'] ?? '', '/' ) !== $row['site_url'] ) { sbh_fail( 'WordPress returned an invalid credential or a different website.', 403 ); }
+                $credential = json_encode( array( 'username' => $username, 'password' => $password ) );
+                $verified = sbh_http( $row['site_url'] . '/wp-json/sitebridge/v1/connect/verify', 'GET', null, array( 'Authorization: Basic ' . base64_encode( $username . ':' . $password ), 'Accept: application/json' ) );
+                if ( ( $verified['app_id'] ?? '' ) !== '6c78a910-07e3-4a44-a3fa-299b20b471c5' || empty( $verified['uuid'] ) || rtrim( $verified['site_url'] ?? '', '/' ) !== $row['site_url'] || ! in_array( 'site_read', $verified['capabilities'] ?? array(), true ) ) { sbh_fail( 'WordPress could not verify SiteBridge access. Check the plugin settings and approve with an administrator account.', 403 ); }
+                $connection = 'site_' . substr( sbh_hash( $row['owner'] . '|' . $row['site_url'] ), 0, 24 );
+                $connection_data = array( 'owner' => $row['owner'], 'url' => $row['site_url'], 'auth_type' => 'application_password', 'key' => sbh_encrypt( $config, $credential ), 'uuid' => $verified['uuid'] );
+                $row['status'] = 'connected'; $row['site'] = $connection;
+            }
+            $db->exec( 'BEGIN IMMEDIATE' );
+            try {
+                if ( $connection_data ) { sbh_put( $db, 'connection', $connection, $connection_data ); }
+                $result = array( 'status' => $row['status'], 'return_url' => sbh_oauth_return( $db, $config, $row ), 'cookie_name' => $session['cookie_name'], 'cookie_hash' => $session['cookie_hash'] );
+                unset( $row['oauth'] );
+                sbh_put( $db, 'pending', $session['request'], $row, $row['expires'] );
+                sbh_put( $db, 'native-result', sbh_hash( $ticket ), $result, time() + 120 );
+                $db->exec( 'COMMIT' );
+            } catch ( Throwable $error ) { $db->exec( 'ROLLBACK' ); throw $error; }
+
+        } catch ( Throwable $error ) {
+            $result = array( 'status' => 'failed' );
+            $result['message'] = $error instanceof RuntimeException ? $error->getMessage() : 'Connection verification failed. Start again from your AI app.';
+            if ( $session ) { $result['cookie_name'] = $session['cookie_name']; $result['cookie_hash'] = $session['cookie_hash']; }
+            if ( $row ) { $row['status'] = 'failed'; }
+        }
+        if ( $row && $session ) { unset( $row['oauth'] ); sbh_put( $db, 'pending', $session['request'], $row, $row['expires'] ); }
+        sbh_put( $db, 'native-result', sbh_hash( $ticket ), $result, time() + 120 );
+        header( 'Referrer-Policy: no-referrer' ); header( 'Location: ' . $base . '/?route=connected&ticket=' . $ticket, true, 303 ); exit;
+    }
+    if ( $route === 'connected' ) {
+        $result = sbh_get( $db, 'native-result', sbh_hash( $_GET['ticket'] ?? '' ) );
+        if ( ! $result || ( isset( $result['cookie_hash'] ) && ! hash_equals( $result['cookie_hash'], sbh_hash( $_COOKIE[ $result['cookie_name'] ] ?? '' ) ) ) ) { sbh_fail( 'Connection result expired or belongs to another browser.', 403 ); }
+        $connected = $result['status'] === 'connected';
+        $title = $connected ? 'You’re connected' : ( $result['status'] === 'denied' ? 'Connection canceled' : 'Connection needs attention' );
+        $body = '<div class="sb-outcome"><p class="sb-eyebrow">' . ( $connected ? 'Ready when you are' : 'Let’s try again' ) . '</p><h1 id="sb-title">' . $title . '</h1><p class="sb-lead">' . htmlspecialchars( $result['message'] ?? ( $connected ? 'Your WordPress website is connected. Return to your AI app to start working.' : 'No connection was approved. Start again from your AI app when you’re ready.' ), ENT_QUOTES, 'UTF-8' ) . '</p>';
+        $return = $result['return_url'] ?? null;
+        if ( $return ) { $body .= '<a class="sb-button" href="' . htmlspecialchars( $return, ENT_QUOTES, 'UTF-8' ) . '">Return to your AI app →</a>'; }
+        sbh_html( $title, $body . '</div>', $connected ? 3 : 2, $return );
+    }
+}
+
 /** Handle public OAuth/browser endpoints before the MCP bearer gate. */
 function sbh_browser_routes( $config ) {
     $path = parse_url( $_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH );
@@ -222,12 +344,16 @@ function sbh_browser_routes( $config ) {
         if ( ! $base ) { sbh_fail( 'Configure public_url first.', 503 ); }
         sbh_json( array( 'issuer' => $base, 'authorization_endpoint' => $base . '/?route=authorize', 'token_endpoint' => $base . '/?route=token', 'registration_endpoint' => $base . '/?route=register', 'revocation_endpoint' => $base . '/?route=revoke', 'response_types_supported' => array( 'code' ), 'grant_types_supported' => array( 'authorization_code', 'refresh_token' ), 'code_challenge_methods_supported' => array( 'S256' ), 'token_endpoint_auth_methods_supported' => array( 'none' ), 'scopes_supported' => array( 'sitebridge' ), 'client_id_metadata_document_supported' => true, 'authorization_response_iss_parameter_supported' => true ) );
     }
-    if ( ! in_array( $route, array( 'authorize', 'register', 'token', 'request', 'callback', 'revoke' ), true ) ) { return; }
+    if ( ! in_array( $route, array( 'authorize', 'register', 'token', 'request', 'callback', 'revoke', 'connect', 'native-return', 'connected' ), true ) ) { return; }
     if ( ! $base ) { sbh_fail( 'Configure public_url first.', 503 ); }
     $db = sbh_db( $config );
     if ( in_array( $route, array( 'register', 'token', 'callback', 'revoke' ), true ) && $method !== 'POST' ) { sbh_fail( 'POST required.', 405 ); }
     if ( ! in_array( $method, array( 'GET', 'POST' ), true ) ) { sbh_fail( 'Method not allowed.', 405 ); }
     sbh_rate( $db, $route, $route === 'register' ? 30 : 120 );
+    if ( in_array( $route, array( 'connect', 'native-return', 'connected' ), true ) ) {
+        if ( $method !== 'GET' ) { sbh_fail( 'GET required.', 405 ); }
+        sbh_native_routes( $config, $route, $db );
+    }
     if ( $route === 'register' ) {
         $input = json_decode( sbh_body(), true );
         if ( ! is_array( $input ) ) { sbh_fail( 'Expected JSON client metadata.' ); }
