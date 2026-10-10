@@ -174,16 +174,25 @@ function sbh_client( $db, $id ) {
         if ( empty( $p['path'] ) || $p['path'] === '/' ) { sbh_fail( 'Client metadata URL must have a path.' ); }
         $client = sbh_http( $id );
         if ( ( $client['client_id'] ?? '' ) !== $id ) { sbh_fail( 'Client metadata identifier mismatch.' ); }
-        sbh_validate_client( $client );
+        $client = sbh_validate_client( $client, true );
         sbh_put( $db, 'client', $id, $client, time() + 3600 );
     }
     if ( ! $client ) { sbh_fail( 'Unknown OAuth client.' ); }
     return $client;
 }
-function sbh_validate_client( $client ) {
+function sbh_validate_client( $client, $metadata_document = false ) {
     if ( empty( $client['client_name'] ) || ! is_string( $client['client_name'] ) || strlen( $client['client_name'] ) > 120 || empty( $client['redirect_uris'] ) || ! is_array( $client['redirect_uris'] ) || count( $client['redirect_uris'] ) > 10 ) { sbh_fail( 'Provide a client_name and 1–10 redirect_uris.' ); }
     foreach ( $client['redirect_uris'] as $uri ) { if ( ! is_string( $uri ) || ! sbh_redirect_valid( $uri ) ) { sbh_fail( 'Invalid redirect URI.' ); } }
+    // A metadata document's plural field lists every method the client can use; the
+    // singular field is only a legacy preference (ChatGPT prefers private_key_jwt but
+    // supports none). Use the intersection with this server's method: none.
+    if ( $metadata_document && array_key_exists( 'token_endpoint_auth_methods_supported', $client ) ) {
+        $methods = $client['token_endpoint_auth_methods_supported'];
+        if ( ! is_array( $methods ) || ! in_array( 'none', $methods, true ) ) { sbh_fail( 'This server supports public PKCE clients only.' ); }
+        $client['token_endpoint_auth_method'] = 'none';
+    }
     if ( ( $client['token_endpoint_auth_method'] ?? 'none' ) !== 'none' ) { sbh_fail( 'This server supports public PKCE clients only.' ); }
+    return $client;
 }
 function sbh_pending( $config, $owner, $site_url, $client_name, $oauth = null ) {
     $db = sbh_db( $config );

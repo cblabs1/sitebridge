@@ -1,4 +1,6 @@
-# SiteBridge Hub 0.6.0 — native WordPress approval
+# SiteBridge Hub 0.6.1 — native WordPress approval
+
+Release 0.6.1 lets ChatGPT sign in. ChatGPT identifies itself with a Client ID Metadata Document that prefers `private_key_jwt` but also supports `none`; the hub now uses the methods both sides support (public PKCE) instead of refusing the legacy preference. Dynamic client registration still accepts public clients only.
 
 Release 0.6.0 pairs with plugin 0.6.0 and adds the tools `rest_api`, `discover_abilities`, `run_ability`, `get_post_meta`, `update_post_meta`, `upload_media`, `get_custom_css`, `update_custom_css`, `update_option` and `purge_cache`. WordPress REST errors from a site now reach the AI client as their code and a short plain-text message. Install plugin 0.6.0 on each site, then enable the new capabilities you want in Settings → SiteBridge; no reconnection is needed.
 

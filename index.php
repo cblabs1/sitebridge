@@ -528,7 +528,7 @@ switch ( $method ) {
 			array(
 				'protocolVersion' => $client_ver,
 				'capabilities'    => array( 'tools' => new stdClass() ),
-				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.6.0' ),
+				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.6.1' ),
 			)
 		);
 		break;

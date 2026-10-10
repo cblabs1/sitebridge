@@ -56,6 +56,11 @@ try {
     check( sbh_redirect_valid( 'http://127.0.0.1:3000/callback' ), 'desktop loopback redirect accepted' );
     check( ! sbh_redirect_valid( 'http://evil.example.com/callback' ) && ! sbh_redirect_valid( 'https://evil.example.com/#fragment' ), 'unsafe redirect URIs refused' );
     rejects( function () { sbh_validate_client( array( 'client_name' => 'AI', 'redirect_uris' => array( 'javascript:alert(1)' ) ) ); }, 'malicious client registration refused' );
+    $chatgpt = array( 'client_id' => 'https://chatgpt.com/oauth/client.json', 'client_name' => 'ChatGPT', 'redirect_uris' => array( 'https://chatgpt.com/connector_platform_oauth_redirect' ), 'token_endpoint_auth_method' => 'private_key_jwt', 'token_endpoint_auth_methods_supported' => array( 'none', 'private_key_jwt' ) );
+    check( sbh_validate_client( $chatgpt, true )['token_endpoint_auth_method'] === 'none', 'ChatGPT metadata document accepted as a public PKCE client' );
+    rejects( function () use ( $chatgpt ) { $c = $chatgpt; $c['token_endpoint_auth_methods_supported'] = array( 'private_key_jwt' ); sbh_validate_client( $c, true ); }, 'metadata document without none refused' );
+    rejects( function () use ( $chatgpt ) { $c = $chatgpt; unset( $c['token_endpoint_auth_methods_supported'] ); sbh_validate_client( $c, true ); }, 'legacy metadata document requiring private_key_jwt refused' );
+    rejects( function () use ( $chatgpt ) { sbh_validate_client( $chatgpt ); }, 'dynamic registration requesting private_key_jwt refused' );
 } finally {
     unset( $db );
     foreach ( glob( $dir . '/*' ) as $file ) { unlink( $file ); }
