@@ -51,7 +51,8 @@ $request=new ForwardedRequest('/sitebridge/v1/site',array('x_sitebridge_authoriz
 $existing_error=new WP_Error('blocked_by_security_plugin');
 check(SiteBridge_Auth::authenticate_forwarded_application($existing_error,null,$request)===$existing_error && $GLOBALS['core_auth_calls']===$before,'fallback preserves earlier security errors');
 $request=new ForwardedRequest('/sitebridge/v1/site',array('x_sitebridge_authorization'=>'Basic '.base64_encode('admin:invalid')));
-check(SiteBridge_Auth::authenticate_forwarded_application(null,null,$request) instanceof WP_Error && get_current_user_id()===0,'invalid forwarded Application Password is rejected');
+$error=SiteBridge_Auth::authenticate_forwarded_application(null,null,$request);
+check($error instanceof WP_Error && get_current_user_id()===0 && $error->error_data['sitebridge_invalid_authorization']['status']===401,'invalid forwarded Application Password returns HTTP 401 instead of an unclassified HTTP 500');
 $request=new ForwardedRequest('/sitebridge/v1/site',array('x_sitebridge_authorization'=>'Basic bm9jb2xvbg=='));
 check(SiteBridge_Auth::authenticate_forwarded_application(null,null,$request) instanceof WP_Error,'malformed forwarded credential is rejected');
 $GLOBALS['test_app_id']='another-application';
@@ -59,7 +60,7 @@ $request=new ForwardedRequest('/sitebridge/v1/site',array('x_sitebridge_authoriz
 check(SiteBridge_Auth::authenticate_forwarded_application(null,null,$request) instanceof WP_Error && get_current_user_id()===0,'unrelated Application Password cannot use forwarded SiteBridge authentication');
 clear_auth_fixture();
 $GLOBALS['settings']['enabled']=false;
-check(SiteBridge_Auth::authenticate_forwarded_application(null,null,$request) instanceof WP_Error && get_current_user_id()===0,'disabled SiteBridge rejects the forwarded password through core hooks');
+check(SiteBridge_Auth::authenticate_forwarded_application(null,null,$request) instanceof WP_Error,'disabled SiteBridge rejects the forwarded password after current-user initialization');
 $GLOBALS['settings']['enabled']=true;
 clear_auth_fixture();
 $GLOBALS['core_uuid']='native-uuid'; $GLOBALS['user_id']=7; $GLOBALS['is_admin']=true;

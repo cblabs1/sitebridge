@@ -17,7 +17,7 @@ function get_current_user_id() { return $GLOBALS['user_id']; }
 function sitebridge_get_settings() { return $GLOBALS['settings']; }
 function get_option( $key, $default ) { return $default; }
 function home_url() { return 'https://site.example.com'; }
-class WP_Error { public $errors = array(); public function __construct( $code = '', $message = '', $data = null ) { if ( $code ) { $this->add( $code, $message, $data ); } } public function add( $code, $message, $data = null ) { $this->errors[$code] = $message; } public function has_errors() { return (bool) $this->errors; } }
+class WP_Error { public $errors = array(); public $error_data = array(); public function __construct( $code = '', $message = '', $data = null ) { if ( $code ) { $this->add( $code, $message, $data ); } } public function add( $code, $message, $data = null ) { $this->errors[$code] = $message; $this->error_data[$code] = $data; } public function has_errors() { return (bool) $this->errors; } }
 class WP_REST_Response { public $data; public function __construct( $data ) { $this->data = $data; } public function header() {} }
 class SiteBridge_Logger { public static function log() {} }
 class Request { private $route; public function __construct( $route ) { $this->route=$route; } public function get_route() { return $this->route; } public function get_header() { return ''; } }
@@ -33,10 +33,14 @@ if ( ! REST_REQUEST ) { check( $error->has_errors(), 'SiteBridge application pas
 check( ! $error->has_errors(), 'administrator native credential accepted for REST authentication' );
 $nonadmin = (object) array( 'ID' => 8, 'admin' => false );
 $error = new WP_Error(); SiteBridge_Auth::check_application( $error, $nonadmin, $item, '' );
-check( $error->has_errors(), 'non-administrator native credential refused' );
+SiteBridge_Auth::capture_application( $nonadmin, $item );
+$GLOBALS['user_id'] = 8; $GLOBALS['is_admin'] = false;
+check( ! $error->has_errors() && SiteBridge_Auth::restrict_application_routes( null, null, new Request( '/sitebridge/v1/site' ) ) instanceof WP_Error, 'non-administrator native credential refused at REST dispatch' );
+$GLOBALS['user_id'] = 7; $GLOBALS['is_admin'] = true;
+SiteBridge_Auth::capture_application( $user, $item );
 $GLOBALS['settings']['enabled'] = false;
 $error = new WP_Error(); SiteBridge_Auth::check_application( $error, $user, $item, '' );
-check( $error->has_errors(), 'disabled plugin blocks native authentication' );
+check( ! $error->has_errors() && SiteBridge_Auth::restrict_application_routes( null, null, new Request( '/sitebridge/v1/site' ) ) instanceof WP_Error, 'disabled plugin blocks native access at REST dispatch' );
 $error = new WP_Error(); SiteBridge_Auth::check_application( $error, $user, array( 'app_id' => 'other-app' ), '' );
 check( ! $error->has_errors(), 'other applications are unaffected' );
 $GLOBALS['settings']['enabled'] = true;

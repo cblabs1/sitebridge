@@ -1,4 +1,6 @@
-# SiteBridge WordPress Plugin 0.5.1
+# SiteBridge WordPress Plugin 0.5.3
+
+Version 0.5.3 fixes a reproducible authentication recursion when other plugins inspect the current user from capability or option filters. Administrator and enabled-plugin checks now run during REST dispatch, after WordPress finishes initializing the current user. Namespace restrictions, XML-RPC denial and individual capability gates remain enforced. Invalid forwarded credentials now return HTTP 401 instead of an unclassified HTTP 500. Install this plugin update on the affected WordPress site and start a fresh approval; updating the hub alone cannot fix code running on WordPress.
 
 Version 0.5.1 adds authentication header compatibility for CGI/shared hosting: the hub sends a SiteBridge fallback header alongside standard Basic authentication, and the plugin validates it using WordPress's Application Password authentication on SiteBridge REST routes only. It also recognizes Application Passwords authenticated before the plugin's observation hook. Update both the hub and WordPress plugin, then request a fresh link after a failed 0.5.0 attempt. No permissions, hashes or authentication checks are bypassed.
 
@@ -6,7 +8,7 @@ SiteBridge connects WordPress to your AI through a remote PHP MCP hub. Install t
 
 ## Connect
 
-1. Install or replace SiteBridge using `sitebridge-plugin_0.5.1.zip` and activate it.
+1. Install or replace SiteBridge using `sitebridge-plugin_0.5.3.zip` and activate it.
 2. Enable SiteBridge and Site info in **Settings → SiteBridge**. Enable other capabilities as needed.
 3. Add your SiteBridge hub URL as an OAuth MCP connector in your AI app.
 4. Enter the website URL or ask the AI to use `connect_site`.

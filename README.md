@@ -1,6 +1,8 @@
-# SiteBridge Hub 0.5.2 — native WordPress approval
+# SiteBridge Hub 0.5.3 — native WordPress approval
 
-Hub 0.5.2 distinguishes timeouts, failed connections, TLS errors, interrupted transfers and the 4 MB response limit. Failures include numeric cURL/HTTP codes and a reference matching sanitized PHP error-log details. Logs omit query strings, credentials, request headers and response bodies. This diagnostic update needs no plugin reinstall; WordPress plugin 0.5.1 remains current.
+Release 0.5.3 includes a required WordPress plugin update for a reproducible authentication recursion: capability or option filters could restart current-user initialization during Application Password authentication, producing an HTTP 500 with an oversized error response. Permission checks now run after current-user initialization; REST namespace and capability restrictions remain enforced. Invalid forwarded credentials return HTTP 401. Install plugin 0.5.3 on the affected WordPress site, then request a fresh approval link. The 4 MB response limit remains in place.
+
+Hub 0.5.2 distinguishes timeouts, failed connections, TLS errors, interrupted transfers and the 4 MB response limit. Failures include numeric cURL/HTTP codes and a reference matching sanitized PHP error-log details. Logs omit query strings, credentials, request headers and response bodies. Those diagnostics remain available in 0.5.3.
 
 Version 0.5.1 adds authentication header compatibility for CGI/shared hosting: the hub sends a SiteBridge fallback header alongside standard Basic authentication, and the plugin validates it using WordPress's Application Password authentication on SiteBridge REST routes only. It also recognizes Application Passwords authenticated before the plugin's observation hook. Update both the hub and WordPress plugin, then request a fresh link after a failed 0.5.0 attempt. No permissions, hashes or authentication checks are bypassed.
 
@@ -8,9 +10,9 @@ A PHP remote MCP hub with OAuth sign-in and WordPress's native Application Passw
 
 AI client → HTTPS PHP MCP hub → SiteBridge WordPress plugin → WordPress
 
-## Upgrade to 0.5.0
+## Upgrade to 0.5.3
 
-**Both the hub and the installed WordPress plugin must be updated.** GitHub CI/CD updates the hub only. Upload `downloads/sitebridge-plugin_0.5.1.zip` using WordPress → Plugins → Add New → Upload Plugin, then replace the existing SiteBridge plugin. Existing settings and custom API keys remain. Start a fresh connection after updating.
+**Both the hub and the installed WordPress plugin must be updated.** GitHub CI/CD updates the hub only. Upload `downloads/sitebridge-plugin_0.5.3.zip` using WordPress → Plugins → Add New → Upload Plugin, then replace the existing SiteBridge plugin. Existing settings and custom API keys remain. Start a fresh connection after updating.
 
 The hub now sends users to WordPress's own `wp-admin/authorize-application.php` screen instead of SiteBridge's custom `admin-post.php` approval page. The native screen handles login, application name, nonce, Approve and Reject. Dark SiteBridge cards remain on the hub's URL-entry, completion and error screens. This improves use of standard WordPress infrastructure; it does not guarantee an individual host's firewall will allow every request.
 
@@ -94,6 +96,7 @@ php tests/plugin-approval.php
 php tests/plugin-native.php
 php tests/plugin-native.php xmlrpc
 php tests/plugin-forwarded.php
+php tests/plugin-auth-lifecycle.php
 python3 tests/ui-checks.py
 python3 tests/hub-protocol.py
 ```
