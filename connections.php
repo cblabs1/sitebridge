@@ -39,7 +39,7 @@ function sbh_http( $url, $method = 'GET', $body = null, $headers = array(), $tim
     $response = '';
     curl_setopt_array( $ch, array(
         CURLOPT_CUSTOMREQUEST => $method,
-        CURLOPT_USERAGENT => 'SiteBridge/0.5.0 (+https://github.com/cblabs1/sitebridge)',
+        CURLOPT_USERAGENT => 'SiteBridge/0.5.1 (+https://github.com/cblabs1/sitebridge)',
         CURLOPT_HTTPHEADER => $headers,
         CURLOPT_TIMEOUT => $timeout,
         CURLOPT_CONNECTTIMEOUT => 8,
@@ -59,6 +59,7 @@ function sbh_http( $url, $method = 'GET', $body = null, $headers = array(), $tim
     $status = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
     curl_close( $ch );
     if ( $ok === false ) { sbh_fail( 'The remote request failed or exceeded the response limit.', 502 ); }
+    if ( $status === 401 ) { sbh_fail( 'WordPress did not accept SiteBridge authentication (HTTP 401). Update the installed SiteBridge plugin to 0.5.1 or newer for hosting header compatibility, then start a fresh connection. If it persists, check Application Password availability and hosting authentication logs.', 502 ); }
     if ( $status >= 300 && $status < 400 ) { sbh_fail( 'Remote endpoint redirected (HTTP ' . $status . '). Use its final HTTPS URL.', 502 ); }
     if ( $status === 403 || $status === 406 ) { sbh_fail( 'The remote site refused the request (HTTP ' . $status . '). Check its authentication, SiteBridge settings, and hosting firewall logs.', 502 ); }
     if ( $status < 200 || $status >= 300 ) { sbh_fail( 'Remote endpoint returned HTTP ' . $status . '. Check the installed plugin version and hosting logs.', 502 ); }
@@ -171,6 +172,14 @@ function sbh_site_authorization( $site ) {
     }
     return 'Authorization: Bearer ' . $site['key'];
 }
+function sbh_site_headers( $site ) {
+    $authorization = sbh_site_authorization( $site );
+    $headers = array( $authorization, 'Content-Type: application/json', 'Accept: application/json' );
+    if ( ( $site['auth_type'] ?? '' ) === 'application_password' ) {
+        $headers[] = 'X-SiteBridge-Authorization: ' . substr( $authorization, strlen( 'Authorization: ' ) );
+    }
+    return $headers;
+}
 function sbh_connections( $config, $owner ) {
     $db = sbh_db( $config );
     $q = $db->query( "SELECT id,data FROM records WHERE kind='connection'" );
@@ -201,7 +210,7 @@ function sbh_html( $title, $body, $step = 1, $navigate = null ) {
 }
 function sbh_landing( $config ) {
     $url = sbh_base( $config ) . '/';
-    sbh_html( 'Connect WordPress to your AI', '<p class="sb-eyebrow">WordPress, meet your AI</p><h1 id="sb-title">A little bridge.<br>A lot of possibilities.</h1><p class="sb-lead">Connect your WordPress website to an AI app you use. Manage content, work with products, and get things done through conversation.</p><label class="sb-label" for="sb-endpoint">Your MCP server URL</label><input class="sb-input" id="sb-endpoint" value="' . htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' ) . '" readonly><p class="sb-hint">Paste this URL into your AI app’s remote MCP or connector settings and choose OAuth sign-in.</p><ul class="sb-features"><li>Connect from an AI app that supports remote MCP</li><li>Approve once in your own WordPress dashboard</li><li>Manage access from your SiteBridge settings</li></ul><a class="sb-button" href="https://github.com/cblabs1/sitebridge/blob/main/downloads/sitebridge-plugin_0.5.0.zip">Get the WordPress plugin <span aria-hidden="true">↗</span></a><p class="sb-help"><a href="https://github.com/cblabs1/sitebridge#connect-an-ai-client">Read the connection guide</a></p>', 0 );
+    sbh_html( 'Connect WordPress to your AI', '<p class="sb-eyebrow">WordPress, meet your AI</p><h1 id="sb-title">A little bridge.<br>A lot of possibilities.</h1><p class="sb-lead">Connect your WordPress website to an AI app you use. Manage content, work with products, and get things done through conversation.</p><label class="sb-label" for="sb-endpoint">Your MCP server URL</label><input class="sb-input" id="sb-endpoint" value="' . htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' ) . '" readonly><p class="sb-hint">Paste this URL into your AI app’s remote MCP or connector settings and choose OAuth sign-in.</p><ul class="sb-features"><li>Connect from an AI app that supports remote MCP</li><li>Approve once in your own WordPress dashboard</li><li>Manage access from your SiteBridge settings</li></ul><a class="sb-button" href="https://github.com/cblabs1/sitebridge/blob/main/downloads/sitebridge-plugin_0.5.1.zip">Get the WordPress plugin <span aria-hidden="true">↗</span></a><p class="sb-help"><a href="https://github.com/cblabs1/sitebridge#connect-an-ai-client">Read the connection guide</a></p>', 0 );
 }
 function sbh_restart_action( $config ) {
     $id = $_POST['restart'] ?? $_GET['restart'] ?? '';
@@ -292,7 +301,7 @@ function sbh_native_routes( $config, $route, $db ) {
                 $username = $_GET['user_login'] ?? ''; $password = $_GET['password'] ?? '';
                 if ( ! is_string( $username ) || $username === '' || strlen( $username ) > 240 || preg_match( '/[:\x00-\x1f\x7f]/', $username ) || ! is_string( $password ) || ! preg_match( '/^[a-zA-Z0-9]{24}$/', str_replace( ' ', '', $password ) ) || rtrim( $_GET['site_url'] ?? '', '/' ) !== $row['site_url'] ) { sbh_fail( 'WordPress returned an invalid credential or a different website.', 403 ); }
                 $credential = json_encode( array( 'username' => $username, 'password' => $password ) );
-                $verified = sbh_http( $row['site_url'] . '/wp-json/sitebridge/v1/connect/verify', 'GET', null, array( 'Authorization: Basic ' . base64_encode( $username . ':' . $password ), 'Accept: application/json' ) );
+                $verified = sbh_http( $row['site_url'] . '/wp-json/sitebridge/v1/connect/verify', 'GET', null, sbh_site_headers( array( 'auth_type' => 'application_password', 'key' => $credential ) ) );
                 if ( ( $verified['app_id'] ?? '' ) !== '6c78a910-07e3-4a44-a3fa-299b20b471c5' || empty( $verified['uuid'] ) || rtrim( $verified['site_url'] ?? '', '/' ) !== $row['site_url'] || ! in_array( 'site_read', $verified['capabilities'] ?? array(), true ) ) { sbh_fail( 'WordPress could not verify SiteBridge access. Check the plugin settings and approve with an administrator account.', 403 ); }
                 $connection = 'site_' . substr( sbh_hash( $row['owner'] . '|' . $row['site_url'] ), 0, 24 );
                 $connection_data = array( 'owner' => $row['owner'], 'url' => $row['site_url'], 'auth_type' => 'application_password', 'key' => sbh_encrypt( $config, $credential ), 'uuid' => $verified['uuid'] );

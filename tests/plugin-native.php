@@ -25,6 +25,7 @@ function check( $value, $name ) { if ( ! $value ) { throw new Exception( $name )
 $plugin = is_dir( __DIR__ . '/../sitebridge' ) ? __DIR__ . '/../sitebridge' : __DIR__ . '/../wordpress-plugin/sitebridge';
 require $plugin . '/includes/class-sitebridge-auth.php';
 require $plugin . '/includes/class-sitebridge-connect.php';
+if ( defined( 'SITEBRIDGE_NATIVE_FIXTURE_ONLY' ) && SITEBRIDGE_NATIVE_FIXTURE_ONLY ) { return; }
 $user = (object) array( 'ID' => 7, 'admin' => true );
 $item = array( 'uuid' => 'native-uuid', 'name' => 'SiteBridge Test', 'app_id' => SITEBRIDGE_APP_ID );
 $error = new WP_Error(); SiteBridge_Auth::check_application( $error, $user, $item, 'not-logged' );

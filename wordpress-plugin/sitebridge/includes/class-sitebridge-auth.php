@@ -17,6 +17,7 @@ class SiteBridge_Auth {
     public static function register_application_password_hooks() {
         add_action( 'wp_authenticate_application_password_errors', array( __CLASS__, 'check_application' ), 10, 4 );
         add_action( 'application_password_did_authenticate', array( __CLASS__, 'capture_application' ), 10, 2 );
+        add_filter( 'rest_pre_dispatch', array( __CLASS__, 'authenticate_forwarded_application' ), 4, 3 );
         add_filter( 'rest_pre_dispatch', array( __CLASS__, 'restrict_application_routes' ), 5, 3 );
     }
     public static function check_application( $error, $user, $item, $password ) {
@@ -31,13 +32,39 @@ class SiteBridge_Auth {
         self::$application_user = self::$application ? $user : null;
     }
     public static function restrict_application_routes( $result, $server, $request ) {
-        if ( self::$application && strpos( $request->get_route(), '/' . SITEBRIDGE_NS . '/' ) !== 0 ) {
+        if ( self::authenticated_application() && strpos( $request->get_route(), '/' . SITEBRIDGE_NS . '/' ) !== 0 ) {
             return new WP_Error( 'sitebridge_application_scope', 'This application password is restricted to SiteBridge endpoints.', array( 'status' => 403 ) );
         }
         return $result;
     }
+    private static function authenticated_application() {
+        // Core may authenticate before this plugin's observation hook runs.
+        $uuid = function_exists( 'rest_get_authenticated_app_password' ) ? rest_get_authenticated_app_password() : null;
+        if ( $uuid ) {
+            $item = WP_Application_Passwords::get_user_application_password( get_current_user_id(), $uuid );
+            return $item && ( $item['app_id'] ?? '' ) === SITEBRIDGE_APP_ID ? $item : null;
+        }
+        return self::$application && self::$application_user && get_current_user_id() === self::$application_user->ID ? self::$application : null;
+    }
     public static function current_application() {
-        return self::$application && self::$application_user && get_current_user_id() === self::$application_user->ID && current_user_can( 'manage_options' ) ? self::$application : null;
+        return current_user_can( 'manage_options' ) ? self::authenticated_application() : null;
+    }
+    public static function authenticate_forwarded_application( $result, $server, $request ) {
+        if ( $result !== null || strpos( $request->get_route(), '/' . SITEBRIDGE_NS . '/' ) !== 0 || self::current_application() ) { return $result; }
+        // Some CGI hosts remove Authorization before WordPress can populate PHP_AUTH_*.
+        // This header transports a credential only; core still checks its stored hash,
+        // availability, administrator requirement and all authentication hooks.
+        $header = $request->get_header( 'x_sitebridge_authorization' );
+        if ( ! $header ) { $header = $request->get_header( 'authorization' ); }
+        if ( ! is_string( $header ) || strlen( $header ) > 2048 || ! preg_match( '/^Basic ([a-zA-Z0-9+\/=]+)$/', $header, $matches ) ) { return $result; }
+        $decoded = base64_decode( $matches[1], true );
+        if ( $decoded === false || strpos( $decoded, ':' ) === false ) { return new WP_Error( 'sitebridge_invalid_authorization', 'Invalid application authentication header.', array( 'status' => 401 ) ); }
+        list( $username, $password ) = explode( ':', $decoded, 2 );
+        $user = wp_authenticate_application_password( null, $username, $password );
+        if ( is_wp_error( $user ) ) { return $user; }
+        if ( ! $user instanceof WP_User || ! self::$application || self::$application_user->ID !== $user->ID || ! user_can( $user, 'manage_options' ) ) { return new WP_Error( 'sitebridge_native_required', 'A SiteBridge application password for an administrator is required.', array( 'status' => 401 ) ); }
+        wp_set_current_user( $user->ID );
+        return $result;
     }
 
 	/**

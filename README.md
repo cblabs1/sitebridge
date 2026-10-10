@@ -1,4 +1,6 @@
-# SiteBridge Hub 0.5 — native WordPress approval
+# SiteBridge Hub 0.5.1 — native WordPress approval
+
+Version 0.5.1 adds authentication header compatibility for CGI/shared hosting: the hub sends a SiteBridge fallback header alongside standard Basic authentication, and the plugin validates it using WordPress's Application Password authentication on SiteBridge REST routes only. It also recognizes Application Passwords authenticated before the plugin's observation hook. Update both the hub and WordPress plugin, then request a fresh link after a failed 0.5.0 attempt. No permissions, hashes or authentication checks are bypassed.
 
 A PHP remote MCP hub with OAuth sign-in and WordPress's native Application Password authorization. An AI requests a temporary connection URL; the user opens it in their own browser, signs in to WordPress, and clicks Approve. WordPress returns to the hub, which verifies the credential, stores it encrypted, and automatically returns to the AI client. Additional sites use the same approval journey and the agent checks `connection_status` afterward.
 
@@ -6,7 +8,7 @@ AI client → HTTPS PHP MCP hub → SiteBridge WordPress plugin → WordPress
 
 ## Upgrade to 0.5.0
 
-**Both the hub and the installed WordPress plugin must be updated.** GitHub CI/CD updates the hub only. Upload `downloads/sitebridge-plugin_0.5.0.zip` using WordPress → Plugins → Add New → Upload Plugin, then replace the existing SiteBridge plugin. Existing settings and custom API keys remain. Start a fresh connection after updating.
+**Both the hub and the installed WordPress plugin must be updated.** GitHub CI/CD updates the hub only. Upload `downloads/sitebridge-plugin_0.5.1.zip` using WordPress → Plugins → Add New → Upload Plugin, then replace the existing SiteBridge plugin. Existing settings and custom API keys remain. Start a fresh connection after updating.
 
 The hub now sends users to WordPress's own `wp-admin/authorize-application.php` screen instead of SiteBridge's custom `admin-post.php` approval page. The native screen handles login, application name, nonce, Approve and Reject. Dark SiteBridge cards remain on the hub's URL-entry, completion and error screens. This improves use of standard WordPress infrastructure; it does not guarantee an individual host's firewall will allow every request.
 
@@ -89,6 +91,7 @@ php tests/hub-security.php
 php tests/plugin-approval.php
 php tests/plugin-native.php
 php tests/plugin-native.php xmlrpc
+php tests/plugin-forwarded.php
 python3 tests/ui-checks.py
 python3 tests/hub-protocol.py
 ```

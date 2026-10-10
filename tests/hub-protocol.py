@@ -20,12 +20,12 @@ function sbh_http($url, $method='GET', $body=null, $headers=array(), $timeout=20
     if (strpos($url, 'https://alice.example.com/') === 0) {
         if (strpos($url, '/connect/info') !== false) { return array('app_id'=>'6c78a910-07e3-4a44-a3fa-299b20b471c5','available'=>true,'site_url'=>'https://alice.example.com','authorization_url'=>'https://alice.example.com/wp-admin/authorize-application.php'); }
         if (strpos($url, '/connect/verify') !== false) {
-            if (!in_array('Authorization: Basic '.base64_encode('admin:'.str_repeat('A',24)),$headers,true)) { sbh_fail('Invalid fixture credential.',403); }
+            if (!in_array('Authorization: Basic '.base64_encode('admin:'.str_repeat('A',24)),$headers,true) || !in_array('X-SiteBridge-Authorization: Basic '.base64_encode('admin:'.str_repeat('A',24)),$headers,true)) { sbh_fail('Invalid fixture credential.',403); }
             return array('app_id'=>'6c78a910-07e3-4a44-a3fa-299b20b471c5','site_url'=>'https://alice.example.com','uuid'=>'fixture-uuid','capabilities'=>array('site_read'));
         }
         if (strpos($url, '/connect/revoke') !== false) { return array('revoked'=>true); }
         if (strpos($url, '/site') !== false) {
-            if (!in_array('Authorization: Basic '.base64_encode('admin:'.str_repeat('A',24)),$headers,true)) { sbh_fail('Wrong proxy authentication.',403); }
+            if (!in_array('Authorization: Basic '.base64_encode('admin:'.str_repeat('A',24)),$headers,true) || !in_array('X-SiteBridge-Authorization: Basic '.base64_encode('admin:'.str_repeat('A',24)),$headers,true)) { sbh_fail('Wrong proxy authentication.',403); }
             return array('name'=>'Native fixture site');
         }
     }
@@ -196,7 +196,7 @@ if ($input['action'] === 'code') {
         check(native_status['status']=='connected','native approval updates the agent connection status')
         native_site=native_status['site']
         status,_,native_info=rpc('site_info',{'site':native_site},alice)
-        check(native_info.get('name')=='Native fixture site','native WordPress requests use HTTP Basic authentication')
+        check(native_info.get('name')=='Native fixture site','native verification and proxy send both standard and forwarded Basic authentication')
         status,_,native_disconnect=rpc('disconnect_site',{'site':native_site},alice)
         check(native_disconnect.get('disconnected') is True and native_disconnect.get('wordpress_revoked') is True,'disconnect revokes the native application password and removes the connection')
         from html import unescape

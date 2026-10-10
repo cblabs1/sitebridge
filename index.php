@@ -156,9 +156,7 @@ function sbh_call_site( $config, $site, $http_method, $path, $query = array(), $
 	}
 
 	try {
-        $data = sbh_http( $url, $http_method, $body === null ? null : json_encode( $body ), array(
-            sbh_site_authorization( $s ), 'Content-Type: application/json', 'Accept: application/json'
-        ), (int) ( $config['timeout'] ?? 30 ) );
+        $data = sbh_http( $url, $http_method, $body === null ? null : json_encode( $body ), sbh_site_headers( $s ), (int) ( $config['timeout'] ?? 30 ) );
         return array( 'ok' => true, 'data' => $data );
     } catch ( Throwable $e ) { return array( 'ok' => false, 'error' => $e->getMessage() ); }
 }
@@ -427,7 +425,7 @@ switch ( $method ) {
 			array(
 				'protocolVersion' => $client_ver,
 				'capabilities'    => array( 'tools' => new stdClass() ),
-				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.5.0' ),
+				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.5.1' ),
 			)
 		);
 		break;
