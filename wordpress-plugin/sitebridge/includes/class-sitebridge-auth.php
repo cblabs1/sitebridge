@@ -49,7 +49,17 @@ class SiteBridge_Auth {
         self::$application = ( $item['app_id'] ?? '' ) === SITEBRIDGE_APP_ID ? $item : null;
         self::$application_user = self::$application ? $user : null;
     }
+    protected static $internal_depth = 0;
+    /**
+     * Run a nested REST dispatch for the SiteBridge REST proxy. The outer request has
+     * already passed the namespace and capability checks; the proxy guards its route.
+     */
+    public static function internal_dispatch( $callback ) {
+        self::$internal_depth++;
+        try { return $callback(); } finally { self::$internal_depth--; }
+    }
     public static function restrict_application_routes( $result, $server, $request ) {
+        if ( self::$internal_depth > 0 ) { return $result; }
         if ( self::authenticated_application() ) {
             if ( strpos( $request->get_route(), '/' . SITEBRIDGE_NS . '/' ) !== 0 ) {
                 SiteBridge_Logger::log( 'auth', 'denied', 'Application password used outside the SiteBridge namespace' );

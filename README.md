@@ -1,4 +1,6 @@
-# SiteBridge Hub 0.5.4 — native WordPress approval
+# SiteBridge Hub 0.6.0 — native WordPress approval
+
+Release 0.6.0 pairs with plugin 0.6.0 and adds the tools `rest_api`, `discover_abilities`, `run_ability`, `get_post_meta`, `update_post_meta`, `upload_media`, `get_custom_css`, `update_custom_css`, `update_option` and `purge_cache`. WordPress REST errors from a site now reach the AI client as their code and a short plain-text message. Install plugin 0.6.0 on each site, then enable the new capabilities you want in Settings → SiteBridge; no reconnection is needed.
 
 Release 0.5.4 pairs with plugin 0.5.4, which fixes an HTTP 403 after approval on sites where another plugin loads the current user early. When a site refuses a request, the hub now reports the WordPress error code (never the response body), or says that the refusal did not come from WordPress, which usually means a firewall.
 
@@ -12,9 +14,9 @@ A PHP remote MCP hub with OAuth sign-in and WordPress's native Application Passw
 
 AI client → HTTPS PHP MCP hub → SiteBridge WordPress plugin → WordPress
 
-## Upgrade to 0.5.4
+## Upgrade to 0.6.0
 
-**Both the hub and the installed WordPress plugin must be updated.** GitHub CI/CD updates the hub only. Upload `downloads/sitebridge-plugin_0.5.4.zip` using WordPress → Plugins → Add New → Upload Plugin, then replace the existing SiteBridge plugin. Existing settings and custom API keys remain. Start a fresh connection after updating.
+**Both the hub and the installed WordPress plugin must be updated.** GitHub CI/CD updates the hub only. Upload `downloads/sitebridge-plugin_0.6.0.zip` using WordPress → Plugins → Add New → Upload Plugin, then replace the existing SiteBridge plugin. Existing settings and custom API keys remain. Start a fresh connection after updating.
 
 The hub now sends users to WordPress's own `wp-admin/authorize-application.php` screen instead of SiteBridge's custom `admin-post.php` approval page. The native screen handles login, application name, nonce, Approve and Reject. Dark SiteBridge cards remain on the hub's URL-entry, completion and error screens. This improves use of standard WordPress infrastructure; it does not guarantee an individual host's firewall will allow every request.
 

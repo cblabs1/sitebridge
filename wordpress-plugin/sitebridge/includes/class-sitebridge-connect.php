@@ -107,6 +107,8 @@ class SiteBridge_Connect {
             'db_read' => 'Run read-only database queries',
             'db_write' => 'Modify the database (advanced)',
             'code_edit' => 'Read and edit files in wp-content (advanced)',
+            'rest_proxy' => 'Use plugin REST routes and abilities',
+            'options_write' => 'Change WordPress settings (advanced)',
         );
     }
     private function headers() {

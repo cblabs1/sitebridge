@@ -1,6 +1,15 @@
-# SiteBridge WordPress Plugin 0.5.4
+# SiteBridge WordPress Plugin 0.6.0
 
-Version 0.5.4 fixes an HTTP 403 after approval on sites where another plugin initializes the current user before WordPress marks the request as REST. SiteBridge application passwords are now accepted for SiteBridge REST URLs at that early stage, while XML-RPC and every other context stay refused. Every 403 path now writes its reason to the SiteBridge activity log.
+Version 0.6.0 adds WPVibe-style tools. Each one follows the capability switches in Settings → SiteBridge:
+
+- **Plugin REST routes and abilities** (`rest_proxy`, off by default): call any REST route as the connected administrator, and discover or run WordPress Abilities. Writes also need content management. Users, application passwords and SiteBridge's own routes are blocked; plugin/theme changes need code editing and `/wp/v2/settings` writes need option writing.
+- **Post meta** (read: site info; write: content management): SEO fields such as Yoast and Rank Math, page-builder data, ACF values. Caches for the post are purged after a write.
+- **Media upload** (content management): from a public URL or base64 data.
+- **Additional CSS** (read: site info; write: content management).
+- **Option writes** (`options_write`, off by default): site URLs, roles, active plugins and secrets stay blocked.
+- **Cache purge** (content management): WP Rocket, LiteSpeed, W3 Total Cache, WP Super Cache, SiteGround, Autoptimize, WP Fastest Cache, Elementor CSS and the object cache.
+
+Version 0.5.4 fixed an HTTP 403 after approval on sites where another plugin initializes the current user before WordPress marks the request as REST. SiteBridge application passwords are now accepted for SiteBridge REST URLs at that early stage, while XML-RPC and every other context stay refused. Every 403 path now writes its reason to the SiteBridge activity log.
 
 Version 0.5.3 fixes a reproducible authentication recursion when other plugins inspect the current user from capability or option filters. Administrator and enabled-plugin checks now run during REST dispatch, after WordPress finishes initializing the current user. Namespace restrictions, XML-RPC denial and individual capability gates remain enforced. Invalid forwarded credentials now return HTTP 401 instead of an unclassified HTTP 500. Install this plugin update on the affected WordPress site and start a fresh approval; updating the hub alone cannot fix code running on WordPress.
 

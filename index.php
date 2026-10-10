@@ -290,6 +290,64 @@ function sbh_tools() {
 			'description' => 'DANGEROUS. Write a text/code file inside wp-content on a site (auto-backup). Params: site, path, content. Requires code_edit.',
 			'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => $site, 'path' => array( 'type' => 'string' ), 'content' => array( 'type' => 'string' ) ), 'required' => array( 'site', 'path', 'content' ) ),
 		),
+		array(
+			'name'        => 'rest_api',
+			'description' => 'Call any WordPress REST route on a site as the connected administrator: core (/wp/v2/...), Yoast, WooCommerce, forms, page builders and other plugins. GET / lists namespaces. Requires rest_proxy; writes also need content_write. Users, application passwords and SiteBridge routes are blocked; plugin/theme changes need code_edit and /wp/v2/settings writes need options_write.',
+			'inputSchema' => array(
+				'type'       => 'object',
+				'properties' => array( 'site' => $site, 'method' => array( 'type' => 'string', 'enum' => array( 'GET', 'POST', 'PUT', 'PATCH', 'DELETE' ) ), 'route' => array( 'type' => 'string', 'description' => 'Route after /wp-json, e.g. /wp/v2/pages/12' ), 'query' => array( 'type' => 'object' ), 'body' => array( 'type' => 'object' ) ),
+				'required'   => array( 'site', 'route' ),
+			),
+		),
+		array(
+			'name'        => 'discover_abilities',
+			'description' => 'List WordPress Abilities (WordPress 6.9+) that plugins expose on a site, with input schemas. Optional search. Requires rest_proxy.',
+			'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => $site, 'search' => array( 'type' => 'string' ) ), 'required' => array( 'site' ) ),
+		),
+		array(
+			'name'        => 'run_ability',
+			'description' => "Run a WordPress Ability by name with input matching its schema. The ability's own permission checks apply. Requires rest_proxy.",
+			'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => $site, 'name' => array( 'type' => 'string' ), 'input' => new stdClass() ), 'required' => array( 'site', 'name' ) ),
+		),
+		array(
+			'name'        => 'get_post_meta',
+			'description' => 'Read custom fields of a post/page: SEO fields (e.g. _yoast_wpseo_title, _yoast_wpseo_metadesc, rank_math_*), page-builder data and ACF values. Without key, lists all keys (large values summarized).',
+			'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => $site, 'id' => array( 'type' => 'number' ), 'key' => array( 'type' => 'string' ) ), 'required' => array( 'site', 'id' ) ),
+		),
+		array(
+			'name'        => 'update_post_meta',
+			'description' => 'Set custom fields on a post/page through WordPress (hooks run, caches purged). meta is an object of key → value; null deletes a key. Requires content_write.',
+			'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => $site, 'id' => array( 'type' => 'number' ), 'meta' => array( 'type' => 'object' ) ), 'required' => array( 'site', 'id', 'meta' ) ),
+		),
+		array(
+			'name'        => 'upload_media',
+			'description' => 'Add a file to the Media Library from a public URL (preferred) or base64 data (under ~700 KB). Optional filename, title, alt, caption and post_id to attach to. Requires content_write.',
+			'inputSchema' => array(
+				'type'       => 'object',
+				'properties' => array( 'site' => $site, 'url' => array( 'type' => 'string' ), 'data' => array( 'type' => 'string' ), 'filename' => array( 'type' => 'string' ), 'title' => array( 'type' => 'string' ), 'alt' => array( 'type' => 'string' ), 'caption' => array( 'type' => 'string' ), 'post_id' => array( 'type' => 'number' ) ),
+				'required'   => array( 'site' ),
+			),
+		),
+		array(
+			'name'        => 'get_custom_css',
+			'description' => "Read the active theme's Customizer Additional CSS on a site.",
+			'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => $site ), 'required' => array( 'site' ) ),
+		),
+		array(
+			'name'        => 'update_custom_css',
+			'description' => "Replace the active theme's Additional CSS (send the complete stylesheet; read it first). Caches are purged. Requires content_write.",
+			'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => $site, 'css' => array( 'type' => 'string' ) ), 'required' => array( 'site', 'css' ) ),
+		),
+		array(
+			'name'        => 'update_option',
+			'description' => 'DANGEROUS. Change a WordPress option (e.g. blogname, a plugin setting). Site URLs, roles, active plugins and secrets are blocked. Returns the previous value. Requires options_write.',
+			'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => $site, 'name' => array( 'type' => 'string' ), 'value' => new stdClass() ), 'required' => array( 'site', 'name', 'value' ) ),
+		),
+		array(
+			'name'        => 'purge_cache',
+			'description' => 'Purge page caches (WP Rocket, LiteSpeed, W3TC, WP Super Cache, SiteGround, Autoptimize, WP Fastest Cache, Elementor CSS) and the object cache. Pass post_id to purge one page. Requires content_write.',
+			'inputSchema' => array( 'type' => 'object', 'properties' => array( 'site' => $site, 'post_id' => array( 'type' => 'number' ) ), 'required' => array( 'site' ) ),
+		),
 	);
 }
 
@@ -401,6 +459,51 @@ function sbh_dispatch_tool( $config, $name, $args ) {
 			$r = sbh_call_site( $config, $site, 'PUT', '/file', array( 'path' => $args['path'] ), array( 'content' => $args['content'] ) );
 			break;
 
+		case 'rest_api':
+			$body = array( 'method' => strtoupper( $args['method'] ?? 'GET' ), 'route' => (string) ( $args['route'] ?? '' ) );
+			foreach ( array( 'query', 'body' ) as $k ) {
+				if ( isset( $args[ $k ] ) && is_array( $args[ $k ] ) ) { $body[ $k ] = $args[ $k ]; }
+			}
+			$r = sbh_call_site( $config, $site, 'POST', '/rest', array(), $body );
+			break;
+
+		case 'discover_abilities':
+			$r = sbh_call_site( $config, $site, 'GET', '/abilities', array_filter( array( 'search' => $args['search'] ?? null ) ) );
+			break;
+
+		case 'run_ability':
+			$r = sbh_call_site( $config, $site, 'POST', '/abilities/run', array(), array( 'name' => (string) ( $args['name'] ?? '' ), 'input' => $args['input'] ?? null ) );
+			break;
+
+		case 'get_post_meta':
+			$r = sbh_call_site( $config, $site, 'GET', '/meta/' . (int) $args['id'], array_filter( array( 'key' => $args['key'] ?? null ) ) );
+			break;
+
+		case 'update_post_meta':
+			$r = sbh_call_site( $config, $site, 'PUT', '/meta/' . (int) $args['id'], array(), array( 'meta' => $args['meta'] ?? null ) );
+			break;
+
+		case 'upload_media':
+			$body = array_intersect_key( $args, array_flip( array( 'url', 'data', 'filename', 'title', 'alt', 'caption', 'post_id' ) ) );
+			$r    = sbh_call_site( $config, $site, 'POST', '/media', array(), $body );
+			break;
+
+		case 'get_custom_css':
+			$r = sbh_call_site( $config, $site, 'GET', '/css' );
+			break;
+
+		case 'update_custom_css':
+			$r = sbh_call_site( $config, $site, 'PUT', '/css', array(), array( 'css' => (string) ( $args['css'] ?? '' ) ) );
+			break;
+
+		case 'update_option':
+			$r = sbh_call_site( $config, $site, 'PUT', '/option-write/' . rawurlencode( (string) ( $args['name'] ?? '' ) ), array(), array( 'value' => $args['value'] ?? null ) );
+			break;
+
+		case 'purge_cache':
+			$r = sbh_call_site( $config, $site, 'POST', '/cache/purge', array(), array_filter( array( 'post_id' => isset( $args['post_id'] ) ? (int) $args['post_id'] : null ) ) );
+			break;
+
 		default:
 			return sbh_tool_result( "Unknown tool: {$name}", true );
 	}
@@ -425,7 +528,7 @@ switch ( $method ) {
 			array(
 				'protocolVersion' => $client_ver,
 				'capabilities'    => array( 'tools' => new stdClass() ),
-				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.5.4' ),
+				'serverInfo'      => array( 'name' => 'sitebridge-hub', 'version' => '0.6.0' ),
 			)
 		);
 		break;

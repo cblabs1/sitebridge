@@ -37,6 +37,8 @@ class SiteBridge_Settings {
 			'db_read'       => 'Run read-only SQL (SELECT/SHOW)',
 			'db_write'      => 'DB write (UPDATE/INSERT/DELETE) — DANGEROUS',
 			'code_edit'     => 'Code/file editing inside wp-content — DANGEROUS',
+			'rest_proxy'    => 'Plugin REST routes &amp; abilities (writes also need content management)',
+			'options_write' => 'Change WordPress settings/options — DANGEROUS',
 		);
 	}
 
@@ -83,7 +85,7 @@ class SiteBridge_Settings {
 						<tr>
 							<th scope="row"><?php echo wp_kses_post( $label ); ?></th>
 							<td><label><input type="checkbox" name="s[<?php echo esc_attr( $key ); ?>]" value="1" <?php checked( ! empty( $settings[ $key ] ) ); ?>> Enabled</label>
-							<?php if ( in_array( $key, array( 'db_write', 'code_edit' ), true ) ) : ?>
+							<?php if ( in_array( $key, array( 'db_write', 'code_edit', 'options_write' ), true ) ) : ?>
 								<span style="color:#b32d2e;"> — leave OFF unless you fully trust the connecting agent.</span>
 							<?php endif; ?>
 							</td>
