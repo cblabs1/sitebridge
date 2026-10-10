@@ -51,7 +51,7 @@ function sbh_http( $url, $method = 'GET', $body = null, $headers = array(), $tim
     $response = '';
     curl_setopt_array( $ch, array(
         CURLOPT_CUSTOMREQUEST => $method,
-        CURLOPT_USERAGENT => 'SiteBridge/0.5.3 (+https://github.com/cblabs1/sitebridge)',
+        CURLOPT_USERAGENT => 'SiteBridge/0.5.4 (+https://github.com/cblabs1/sitebridge)',
         CURLOPT_HTTPHEADER => $headers,
         CURLOPT_TIMEOUT => $timeout,
         CURLOPT_CONNECTTIMEOUT => 8,
@@ -78,9 +78,16 @@ function sbh_http( $url, $method = 'GET', $body = null, $headers = array(), $tim
         error_log( 'SiteBridge transport ' . json_encode( array( 'reference' => $reference, 'host' => $host, 'path' => $p['path'] ?? '/', 'method' => $method, 'curl_errno' => $errno, 'http_status' => $status, 'elapsed_seconds' => round( $elapsed, 3 ), 'connect_seconds' => round( $connect_time, 3 ), 'response_bytes' => $size ) ) );
         sbh_fail( sbh_transport_message( $errno, $size, $elapsed, $status ) . ' Reference: ' . $reference . '.', 502 );
     }
-    if ( $status === 401 ) { sbh_fail( 'WordPress did not accept SiteBridge authentication (HTTP 401). Update the installed SiteBridge plugin to 0.5.3 or newer for hosting header compatibility, then start a fresh connection. If it persists, check Application Password availability and hosting authentication logs.', 502 ); }
+    if ( $status === 401 ) { sbh_fail( 'WordPress did not accept SiteBridge authentication (HTTP 401). Update the installed SiteBridge plugin to 0.5.4 or newer for hosting header compatibility, then start a fresh connection. If it persists, check Application Password availability and hosting authentication logs.', 502 ); }
     if ( $status >= 300 && $status < 400 ) { sbh_fail( 'Remote endpoint redirected (HTTP ' . $status . '). Use its final HTTPS URL.', 502 ); }
-    if ( $status === 403 || $status === 406 ) { sbh_fail( 'The remote site refused the request (HTTP ' . $status . '). Check its authentication, SiteBridge settings, and hosting firewall logs.', 502 ); }
+    if ( $status === 403 || $status === 406 ) {
+        // Only the WordPress error code identifier is surfaced, never the body. A non-JSON
+        // refusal usually comes from a firewall/WAF in front of WordPress.
+        $remote = json_decode( $response, true );
+        $code = is_array( $remote ) && is_string( $remote['code'] ?? null ) && preg_match( '/^[a-z0-9_\-]{1,64}$/i', $remote['code'] ) ? $remote['code'] : null;
+        $source = $code ? 'WordPress error code: ' . $code . '.' : 'The response was not a WordPress REST error, which usually means a hosting firewall or security plugin blocked it.';
+        sbh_fail( 'The remote site refused the request (HTTP ' . $status . '). ' . $source . ' Check its authentication, SiteBridge settings, and hosting firewall logs.', 502 );
+    }
     if ( $status < 200 || $status >= 300 ) { sbh_fail( 'Remote endpoint returned HTTP ' . $status . '. Check the installed plugin version and hosting logs.', 502 ); }
     $data = json_decode( $response, true );
     if ( ! is_array( $data ) ) { sbh_fail( 'The remote endpoint did not return JSON.', 502 ); }
@@ -229,7 +236,7 @@ function sbh_html( $title, $body, $step = 1, $navigate = null ) {
 }
 function sbh_landing( $config ) {
     $url = sbh_base( $config ) . '/';
-    sbh_html( 'Connect WordPress to your AI', '<p class="sb-eyebrow">WordPress, meet your AI</p><h1 id="sb-title">A little bridge.<br>A lot of possibilities.</h1><p class="sb-lead">Connect your WordPress website to an AI app you use. Manage content, work with products, and get things done through conversation.</p><label class="sb-label" for="sb-endpoint">Your MCP server URL</label><input class="sb-input" id="sb-endpoint" value="' . htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' ) . '" readonly><p class="sb-hint">Paste this URL into your AI app’s remote MCP or connector settings and choose OAuth sign-in.</p><ul class="sb-features"><li>Connect from an AI app that supports remote MCP</li><li>Approve once in your own WordPress dashboard</li><li>Manage access from your SiteBridge settings</li></ul><a class="sb-button" href="https://github.com/cblabs1/sitebridge/blob/main/downloads/sitebridge-plugin_0.5.3.zip">Get the WordPress plugin <span aria-hidden="true">↗</span></a><p class="sb-help"><a href="https://github.com/cblabs1/sitebridge#connect-an-ai-client">Read the connection guide</a></p>', 0 );
+    sbh_html( 'Connect WordPress to your AI', '<p class="sb-eyebrow">WordPress, meet your AI</p><h1 id="sb-title">A little bridge.<br>A lot of possibilities.</h1><p class="sb-lead">Connect your WordPress website to an AI app you use. Manage content, work with products, and get things done through conversation.</p><label class="sb-label" for="sb-endpoint">Your MCP server URL</label><input class="sb-input" id="sb-endpoint" value="' . htmlspecialchars( $url, ENT_QUOTES, 'UTF-8' ) . '" readonly><p class="sb-hint">Paste this URL into your AI app’s remote MCP or connector settings and choose OAuth sign-in.</p><ul class="sb-features"><li>Connect from an AI app that supports remote MCP</li><li>Approve once in your own WordPress dashboard</li><li>Manage access from your SiteBridge settings</li></ul><a class="sb-button" href="https://github.com/cblabs1/sitebridge/blob/main/downloads/sitebridge-plugin_0.5.4.zip">Get the WordPress plugin <span aria-hidden="true">↗</span></a><p class="sb-help"><a href="https://github.com/cblabs1/sitebridge#connect-an-ai-client">Read the connection guide</a></p>', 0 );
 }
 function sbh_restart_action( $config ) {
     $id = $_POST['restart'] ?? $_GET['restart'] ?? '';

@@ -25,9 +25,25 @@ class SiteBridge_Auth {
         // WordPress has not initialized its current user here. Capability and
         // option filters can read that user and recursively restart authentication.
         // Defer those checks to REST dispatch, after user initialization finishes.
-        if ( ! defined( 'REST_REQUEST' ) || ! REST_REQUEST ) {
+        if ( ! self::is_sitebridge_rest_request() ) {
+            SiteBridge_Logger::log( 'auth', 'denied', 'SiteBridge application password used outside SiteBridge REST routes' );
             $error->add( 'sitebridge_application_forbidden', 'This SiteBridge application password is restricted to the REST API.', array( 'status' => 403 ) );
         }
+    }
+    /**
+     * Plugins may initialize the current user before WordPress defines REST_REQUEST
+     * (core treats that as an API request only through application_password_is_api_request).
+     * Recognize SiteBridge REST URLs directly so that early authentication is not refused.
+     */
+    private static function is_sitebridge_rest_request() {
+        if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) { return false; }
+        if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) { return true; }
+        // Avoid home_url()/options here: their filters can restart user initialization.
+        if ( isset( $_GET['rest_route'] ) && is_string( $_GET['rest_route'] ) ) {
+            return 0 === strpos( wp_unslash( $_GET['rest_route'] ), '/' . SITEBRIDGE_NS . '/' );
+        }
+        $path = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_parse_url( wp_unslash( $_SERVER['REQUEST_URI'] ), PHP_URL_PATH ) : '';
+        return false !== strpos( $path, '/' . trim( rest_get_url_prefix(), '/' ) . '/' . SITEBRIDGE_NS . '/' );
     }
     public static function capture_application( $user, $item ) {
         self::$application = ( $item['app_id'] ?? '' ) === SITEBRIDGE_APP_ID ? $item : null;
@@ -36,10 +52,12 @@ class SiteBridge_Auth {
     public static function restrict_application_routes( $result, $server, $request ) {
         if ( self::authenticated_application() ) {
             if ( strpos( $request->get_route(), '/' . SITEBRIDGE_NS . '/' ) !== 0 ) {
+                SiteBridge_Logger::log( 'auth', 'denied', 'Application password used outside the SiteBridge namespace' );
                 return new WP_Error( 'sitebridge_application_scope', 'This application password is restricted to SiteBridge endpoints.', array( 'status' => 403 ) );
             }
             $settings = sitebridge_get_settings();
             if ( ! current_user_can( 'manage_options' ) || empty( $settings['enabled'] ) ) {
+                SiteBridge_Logger::log( 'auth', 'denied', sprintf( 'Application password refused: user %d, manage_options %s, SiteBridge %s', get_current_user_id(), current_user_can( 'manage_options' ) ? 'yes' : 'no (removed by role or another plugin)', empty( $settings['enabled'] ) ? 'disabled' : 'enabled' ) );
                 return new WP_Error( 'sitebridge_application_forbidden', 'This SiteBridge application password requires an administrator and an enabled SiteBridge REST API.', array( 'status' => 403 ) );
             }
         }
@@ -69,8 +87,8 @@ class SiteBridge_Auth {
         if ( $decoded === false || strpos( $decoded, ':' ) === false ) { return new WP_Error( 'sitebridge_invalid_authorization', 'Invalid application authentication header.', array( 'status' => 401 ) ); }
         list( $username, $password ) = explode( ':', $decoded, 2 );
         $user = wp_authenticate_application_password( null, $username, $password );
-        if ( is_wp_error( $user ) ) { return new WP_Error( 'sitebridge_invalid_authorization', 'Application password authentication failed.', array( 'status' => 401 ) ); }
-        if ( ! $user instanceof WP_User || ! self::$application || ! self::$application_user || self::$application_user->ID !== $user->ID ) { return new WP_Error( 'sitebridge_native_required', 'A SiteBridge application password for an administrator is required.', array( 'status' => 401 ) ); }
+        if ( is_wp_error( $user ) ) { SiteBridge_Logger::log( 'auth', 'denied', 'Forwarded application password failed: ' . $user->get_error_code() ); return new WP_Error( 'sitebridge_invalid_authorization', 'Application password authentication failed.', array( 'status' => 401 ) ); }
+        if ( ! $user instanceof WP_User || ! self::$application || ! self::$application_user || self::$application_user->ID !== $user->ID ) { SiteBridge_Logger::log( 'auth', 'denied', 'Forwarded password is not a SiteBridge application password' ); return new WP_Error( 'sitebridge_native_required', 'A SiteBridge application password for an administrator is required.', array( 'status' => 401 ) ); }
         wp_set_current_user( $user->ID );
         return self::restrict_application_routes( $result, $server, $request );
     }

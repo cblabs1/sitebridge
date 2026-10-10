@@ -1,4 +1,6 @@
-# SiteBridge WordPress Plugin 0.5.3
+# SiteBridge WordPress Plugin 0.5.4
+
+Version 0.5.4 fixes an HTTP 403 after approval on sites where another plugin initializes the current user before WordPress marks the request as REST. SiteBridge application passwords are now accepted for SiteBridge REST URLs at that early stage, while XML-RPC and every other context stay refused. Every 403 path now writes its reason to the SiteBridge activity log.
 
 Version 0.5.3 fixes a reproducible authentication recursion when other plugins inspect the current user from capability or option filters. Administrator and enabled-plugin checks now run during REST dispatch, after WordPress finishes initializing the current user. Namespace restrictions, XML-RPC denial and individual capability gates remain enforced. Invalid forwarded credentials now return HTTP 401 instead of an unclassified HTTP 500. Install this plugin update on the affected WordPress site and start a fresh approval; updating the hub alone cannot fix code running on WordPress.
 

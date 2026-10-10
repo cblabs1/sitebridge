@@ -5,7 +5,11 @@ define( 'SITEBRIDGE_NS', 'sitebridge/v1' );
 define( 'SITEBRIDGE_APP_ID', '6c78a910-07e3-4a44-a3fa-299b20b471c5' );
 define( 'SITEBRIDGE_VERSION', '0.5.0' );
 define( 'SITEBRIDGE_OPT_KEYS', 'sitebridge_keys' );
-define( 'REST_REQUEST', ( $argv[1] ?? '' ) !== 'xmlrpc' );
+$mode = $argv[1] ?? '';
+// early: a plugin initialized the user before WordPress defined REST_REQUEST.
+define( 'REST_REQUEST', ! in_array( $mode, array( 'xmlrpc', 'early', 'other' ), true ) );
+if ( $mode === 'xmlrpc' ) { define( 'XMLRPC_REQUEST', true ); }
+$_SERVER['REQUEST_URI'] = $mode === 'other' ? '/wp-admin/admin-ajax.php?x=/wp-json/sitebridge/v1/' : '/blog/wp-json/sitebridge/v1/connect/verify';
 $GLOBALS['settings'] = array( 'enabled' => true, 'site_read' => true, 'content_write' => false );
 $GLOBALS['user_id'] = 7;
 $GLOBALS['is_admin'] = true;
@@ -17,7 +21,10 @@ function get_current_user_id() { return $GLOBALS['user_id']; }
 function sitebridge_get_settings() { return $GLOBALS['settings']; }
 function get_option( $key, $default ) { return $default; }
 function home_url() { return 'https://site.example.com'; }
-class WP_Error { public $errors = array(); public $error_data = array(); public function __construct( $code = '', $message = '', $data = null ) { if ( $code ) { $this->add( $code, $message, $data ); } } public function add( $code, $message, $data = null ) { $this->errors[$code] = $message; $this->error_data[$code] = $data; } public function has_errors() { return (bool) $this->errors; } }
+function rest_get_url_prefix() { return 'wp-json'; }
+if ( ! function_exists( 'wp_unslash' ) ) { function wp_unslash( $s ) { return $s; } }
+function wp_parse_url( $url, $component = -1 ) { return parse_url( $url, $component ); }
+class WP_Error { public $errors = array(); public $error_data = array(); public function __construct( $code = '', $message = '', $data = null ) { if ( $code ) { $this->add( $code, $message, $data ); } } public function add( $code, $message, $data = null ) { $this->errors[$code] = $message; $this->error_data[$code] = $data; } public function has_errors() { return (bool) $this->errors; } public function get_error_code() { return key( $this->errors ); } }
 class WP_REST_Response { public $data; public function __construct( $data ) { $this->data = $data; } public function header() {} }
 class SiteBridge_Logger { public static function log() {} }
 class Request { private $route; public function __construct( $route ) { $this->route=$route; } public function get_route() { return $this->route; } public function get_header() { return ''; } }
@@ -29,7 +36,9 @@ if ( defined( 'SITEBRIDGE_NATIVE_FIXTURE_ONLY' ) && SITEBRIDGE_NATIVE_FIXTURE_ON
 $user = (object) array( 'ID' => 7, 'admin' => true );
 $item = array( 'uuid' => 'native-uuid', 'name' => 'SiteBridge Test', 'app_id' => SITEBRIDGE_APP_ID );
 $error = new WP_Error(); SiteBridge_Auth::check_application( $error, $user, $item, 'not-logged' );
-if ( ! REST_REQUEST ) { check( $error->has_errors(), 'SiteBridge application password cannot authenticate XML-RPC' ); exit; }
+if ( $mode === 'xmlrpc' ) { check( $error->has_errors(), 'SiteBridge application password cannot authenticate XML-RPC' ); exit; }
+if ( $mode === 'other' ) { check( $error->has_errors(), 'SiteBridge application password refused outside SiteBridge REST routes' ); exit; }
+if ( $mode === 'early' ) { check( ! $error->has_errors(), 'SiteBridge REST route accepted when user initialized before REST_REQUEST' ); exit; }
 check( ! $error->has_errors(), 'administrator native credential accepted for REST authentication' );
 $nonadmin = (object) array( 'ID' => 8, 'admin' => false );
 $error = new WP_Error(); SiteBridge_Auth::check_application( $error, $nonadmin, $item, '' );

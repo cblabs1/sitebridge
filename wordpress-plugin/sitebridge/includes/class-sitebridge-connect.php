@@ -30,7 +30,10 @@ class SiteBridge_Connect {
     }
     public function native_verify() {
         $application = SiteBridge_Auth::current_application();
-        if ( ! $application ) { return new WP_Error( 'sitebridge_native_required', 'Authorize a SiteBridge application password with an administrator account.', array( 'status' => 403 ) ); }
+        if ( ! $application ) {
+            SiteBridge_Logger::log( 'connect', 'denied', sprintf( 'Verify refused: user %d, manage_options %s, app password uuid %s', get_current_user_id(), current_user_can( 'manage_options' ) ? 'yes' : 'no', function_exists( 'rest_get_authenticated_app_password' ) && rest_get_authenticated_app_password() ? 'present' : 'missing' ) );
+            return new WP_Error( 'sitebridge_native_required', 'Authorize a SiteBridge application password with an administrator account.', array( 'status' => 403 ) );
+        }
         $response = new WP_REST_Response( array( 'site_url' => rtrim( home_url(), '/' ), 'app_id' => $application['app_id'], 'uuid' => $application['uuid'], 'capabilities' => $this->enabled_caps( sitebridge_get_settings() ) ) );
         $response->header( 'Cache-Control', 'no-store' );
         return $response;

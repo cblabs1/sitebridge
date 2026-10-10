@@ -6,6 +6,7 @@ define( 'REST_REQUEST', true );
 $GLOBALS['current_wp_user']=null; $GLOBALS['auth_depth']=0; $GLOBALS['auth_calls']=0;
 $GLOBALS['admin']=true; $GLOBALS['enabled']=true; $GLOBALS['core_uuid']=null;
 function add_action() {} function add_filter() {}
+class SiteBridge_Logger { public static function log() {} }
 function sitebridge_get_settings() {
     // Option filters can also inspect the current user, so settings must wait.
     get_current_user_id();
