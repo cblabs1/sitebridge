@@ -119,3 +119,5 @@ python3 tests/hub-protocol.py
 The HTTP suite starts a temporary local PHP server and uses fixture grants; it never connects a real WordPress site. The plugin suite stubs WordPress APIs. Real WordPress/browser testing and target-client testing remain deployment checks.
 
 Independent software; not affiliated with WPVibe.
+
+Hub 0.4.1 fixes browser approval handoff: a rendered navigation page avoids Chrome blocking cross-origin form redirects, and includes a WordPress link if automatic navigation is disabled. Repeated submissions resume the original pending request without creating duplicates; browser cookies remain required. This hub-only update does not require reinstalling the WordPress plugin.

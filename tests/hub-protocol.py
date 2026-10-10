@@ -97,10 +97,15 @@ if ($input['action'] === 'code') {
         fresh_post={'flow':fresh_flow,'restart':fresh_restart,'site_url':'https://alice.example.com'}
         # Test server is HTTP; send its production Secure cookie explicitly rather than weakening it.
         cookie=fresh_headers['Set-Cookie'].split(';',1)[0]
-        status,headers,_=request('/?route=authorize',fresh_post,form=True,extra_headers={'Cookie':cookie})
-        check(status==303 and '/wp-admin/admin-post.php?' in headers['Location'],'fresh browser form reaches WordPress approval')
+        status,headers,body=request('/?route=authorize',fresh_post,form=True,extra_headers={'Cookie':cookie})
+        check(status==200 and 'http-equiv="refresh"' in body and '/wp-admin/admin-post.php?' in body and 'Location' not in headers,'browser handoff avoids CSP-blocked form redirects and includes a fallback link')
+        approval=re.search(r'<a class="sb-button" href="([^"]+)"',body).group(1)
         status,_,body=request('/?route=authorize',fresh_post,form=True,extra_headers={'Cookie':cookie,'Accept':'text/html'})
-        check(status==403 and 'already submitted' in body and 'Restart connection' in body,'resubmitted form fails safely with recovery')
+        check(status==200 and approval in body,'repeated submission resumes the same approval request')
+        status,_,_=request('/?route=authorize',fresh_post,form=True)
+        check(status==403,'retry still requires the browser cookie')
+        status,_,_=request('/?route=authorize',dict(fresh_post,site_url='https://other.example.com'),form=True,extra_headers={'Cookie':cookie})
+        check(status==409,'retry cannot substitute a different website')
         status,_,_=request('/?route=authorize&restart='+('0'*64))
         check(status==403,'forged restart context rejected')
         invalid=dict(auth,redirect_uri='https://evil.example.com/callback')

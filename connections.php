@@ -170,13 +170,14 @@ function sbh_connections( $config, $owner ) {
     }
     return $out;
 }
-function sbh_html( $title, $body, $step = 1 ) {
+function sbh_html( $title, $body, $step = 1, $navigate = null ) {
     header( 'Content-Type: text/html; charset=UTF-8' );
     header( "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" );
     header( 'Referrer-Policy: no-referrer' );
     header( 'X-Content-Type-Options: nosniff' );
+    $refresh = $navigate === null ? '' : '<meta http-equiv="refresh" content="0;url=' . htmlspecialchars( $navigate, ENT_QUOTES, 'UTF-8' ) . '">';
     $css = file_get_contents( __DIR__ . '/connection-ui.css' );
-    echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . htmlspecialchars( $title ) . ' · SiteBridge</title><style>' . $css . '</style></head><body class="sb-journey"><main class="sb-shell"><div class="sb-brand"><span class="sb-mark" aria-hidden="true">sb</span>SiteBridge</div>';
+    echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . htmlspecialchars( $title ) . ' · SiteBridge</title>' . $refresh . '<style>' . $css . '</style></head><body class="sb-journey"><main class="sb-shell"><div class="sb-brand"><span class="sb-mark" aria-hidden="true">sb</span>SiteBridge</div>';
     if ( $step ) {
         echo '<ol class="sb-steps" aria-label="Connection progress">';
         foreach ( array( 1 => 'Connect', 2 => 'Approve', 3 => 'Ready' ) as $number => $label ) {
@@ -252,7 +253,7 @@ function sbh_browser_routes( $config ) {
             if ( ! in_array( $_GET['resource'] ?? $base . '/', array( $base, $base . '/' ), true ) ) { sbh_fail( 'Invalid resource audience.' ); }
             if ( ! in_array( $_GET['scope'] ?? 'sitebridge', array( '', 'sitebridge' ), true ) ) { sbh_fail( 'Unsupported scope.' ); }
             $flow = sbh_random(); $csrf = sbh_random();
-            $oauth = array( 'client_id' => $client_id, 'client_name' => $client['client_name'], 'redirect_uri' => $redirect, 'challenge' => $_GET['code_challenge'], 'state' => substr( $_GET['state'] ?? '', 0, 2048 ), 'resource' => $base . '/', 'csrf' => sbh_hash( $csrf ) );
+            $oauth = array( 'client_id' => $client_id, 'client_name' => $client['client_name'], 'redirect_uri' => $redirect, 'challenge' => $_GET['code_challenge'], 'state' => substr( $_GET['state'] ?? '', 0, 2048 ), 'resource' => $base . '/', 'csrf' => sbh_hash( $csrf ), 'expires' => time() + 600 );
             sbh_put( $db, 'flow', $flow, $oauth, time() + 600 );
             $restart = sbh_random();
             $context = array( 'client_id' => $client_id, 'redirect_uri' => $redirect, 'response_type' => 'code', 'code_challenge_method' => 'S256', 'code_challenge' => $oauth['challenge'], 'state' => $oauth['state'], 'resource' => $base . '/', 'scope' => 'sitebridge' );
@@ -265,10 +266,33 @@ function sbh_browser_routes( $config ) {
         $cookie = $_COOKIE[ 'sbh_flow_' . substr( $flow, 0, 16 ) ] ?? '';
         if ( ! $oauth ) { sbh_fail( 'This form expired or was already submitted. Restart below to open a fresh form.', 403 ); }
         if ( ! hash_equals( $oauth['csrf'], sbh_hash( $cookie ) ) ) { sbh_fail( 'Your browser session could not be verified. Restart below in the same browser, with cookies enabled.', 403 ); }
-        $pending = sbh_pending( $config, sbh_random(), trim( $_POST['site_url'] ?? '' ), $oauth['client_name'], $oauth );
-        sbh_delete( $db, 'flow', $flow );
-        header( 'Referrer-Policy: no-referrer' );
-        header( 'Location: ' . $pending['approval_url'], true, 303 ); exit;
+        $site_url = rtrim( trim( $_POST['site_url'] ?? '' ), '/' );
+        // Serialize retries so a double click cannot create two approval requests.
+        $db->exec( 'BEGIN IMMEDIATE' );
+        try {
+            $oauth = sbh_get( $db, 'flow', $flow );
+            if ( ! $oauth ) { sbh_fail( 'This form expired. Restart to open a fresh form.', 403 ); }
+            if ( isset( $oauth['approval'] ) ) {
+                if ( $site_url !== $oauth['site_url'] ) { sbh_fail( 'This form already started a connection for another website. Restart to change websites.', 409 ); }
+                $request = sbh_get( $db, 'pending', $oauth['request_id'] );
+                if ( ! $request || $request['status'] !== 'pending' ) { sbh_fail( 'This approval request has finished or expired. Return to your AI app or restart the connection.', 409 ); }
+                $approval_url = sbh_decrypt( $config, $oauth['approval'] );
+            } else {
+                $pending = sbh_pending( $config, sbh_random(), $site_url, $oauth['client_name'], $oauth );
+                $approval_url = $pending['approval_url'];
+                $oauth['site_url'] = $site_url;
+                $oauth['request_id'] = $pending['request_id'];
+                $oauth['approval'] = sbh_encrypt( $config, $approval_url );
+                sbh_put( $db, 'flow', $flow, $oauth, $oauth['expires'] ?? time() + 600 );
+            }
+            $db->exec( 'COMMIT' );
+        } catch ( Throwable $error ) {
+            $db->exec( 'ROLLBACK' );
+            throw $error;
+        }
+        // A new document navigates independently of Chrome's form-action redirect check.
+        // Keep an ordinary link available if automatic navigation is disabled.
+        sbh_html( 'Continue to WordPress', '<p class="sb-eyebrow">One more step</p><h1 id="sb-title">Opening WordPress…</h1><p class="sb-lead">Sign in to your website and approve the connection.</p><a class="sb-button" href="' . htmlspecialchars( $approval_url, ENT_QUOTES, 'UTF-8' ) . '">Continue to WordPress <span aria-hidden="true">→</span></a><p class="sb-note">If WordPress doesn’t open automatically, use the button above.</p>', 2, $approval_url );
     }
     if ( $route === 'request' || $route === 'callback' ) {
         $in = $route === 'request' ? $_GET : json_decode( sbh_body(), true );
