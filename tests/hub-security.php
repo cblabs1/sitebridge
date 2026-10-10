@@ -44,6 +44,11 @@ try {
     rejects( function () use ( $db, $native_state, $native_cookie ) { sbh_native_claim( $db, $native_state, $native_cookie ); }, 'native callback state cannot be replayed' );
     sbh_put( $db, 'native', sbh_hash( $native_state ), array( 'request' => $request_id, 'cookie_hash' => sbh_hash( $native_cookie ) ), time() - 1 );
     rejects( function () use ( $db, $native_state, $native_cookie ) { sbh_native_claim( $db, $native_state, $native_cookie ); }, 'expired native callback refused' );
+    check( strpos( sbh_transport_message( CURLE_OPERATION_TIMEDOUT, 0, 20, 0 ), 'timed out after 20 seconds' ) !== false, 'transport timeout is distinguished from response limits' );
+    check( strpos( sbh_transport_message( CURLE_WRITE_ERROR, 4194305, 1, 200 ), '4 MB limit' ) !== false, 'oversized response is reported separately' );
+    check( strpos( sbh_transport_message( CURLE_COULDNT_CONNECT, 0, 8, 0 ), 'establish a connection' ) !== false, 'connection failure has a specific diagnostic' );
+    check( strpos( sbh_transport_message( CURLE_SSL_CACERT, 0, 1, 0 ), 'certificate' ) !== false, 'TLS failures keep verification enabled and identify the failure' );
+    check( strpos( sbh_transport_message( CURLE_RECV_ERROR, 200, 3, 200 ), 'interrupted' ) !== false, 'interrupted transfers retain curl and HTTP diagnostics' );
     rejects( function () { sbh_public_url( 'http://example.com' ); }, 'HTTP WordPress URLs refused' );
     rejects( function () { sbh_http( 'https://127.0.0.1' ); }, 'loopback SSRF refused before connection' );
     rejects( function () { sbh_http( 'https://169.254.169.254/latest/meta-data' ); }, 'metadata SSRF refused before connection' );

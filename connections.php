@@ -23,6 +23,18 @@ function sbh_public_url( $url, $allow_path = true ) {
     if ( ! $allow_path && isset( $p['query'] ) ) { sbh_fail( 'The site URL must not contain a query.' ); }
     return $p;
 }
+/** Safe transport diagnostics: never include credentials, response bodies or query strings. */
+function sbh_transport_message( $errno, $size, $seconds, $status ) {
+    if ( $size > 4 * 1024 * 1024 ) { $message = 'The remote response exceeded the 4 MB limit.'; }
+    elseif ( $errno === CURLE_OPERATION_TIMEDOUT ) { $message = 'The remote request timed out after ' . round( $seconds, 1 ) . ' seconds.'; }
+    elseif ( $errno === CURLE_COULDNT_CONNECT ) { $message = 'The hub could not establish a connection to the remote server.'; }
+    elseif ( $errno === CURLE_COULDNT_RESOLVE_HOST ) { $message = 'The hub could not resolve the remote server hostname.'; }
+    elseif ( in_array( $errno, array( CURLE_SSL_CONNECT_ERROR, CURLE_SSL_CACERT ), true ) ) { $message = 'The HTTPS connection or certificate verification failed.'; }
+    elseif ( $errno === CURLE_GOT_NOTHING ) { $message = 'The remote server closed the connection without returning a response.'; }
+    elseif ( in_array( $errno, array( CURLE_RECV_ERROR, CURLE_SEND_ERROR ), true ) ) { $message = 'The connection to the remote server was interrupted while transferring data.'; }
+    else { $message = 'The remote request failed at the transport layer.'; }
+    return $message . ' (cURL ' . (int) $errno . ', HTTP ' . (int) $status . ')';
+}
 /** Resolve and pin a public IPv4 address; never follow redirects or use proxy env vars. */
 function sbh_http( $url, $method = 'GET', $body = null, $headers = array(), $timeout = 20 ) {
     $p = sbh_public_url( $url );
@@ -57,8 +69,15 @@ function sbh_http( $url, $method = 'GET', $body = null, $headers = array(), $tim
     if ( $body !== null ) { curl_setopt( $ch, CURLOPT_POSTFIELDS, $body ); }
     $ok = curl_exec( $ch );
     $status = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+    $errno = curl_errno( $ch );
+    $elapsed = curl_getinfo( $ch, CURLINFO_TOTAL_TIME );
+    $connect_time = curl_getinfo( $ch, CURLINFO_CONNECT_TIME );
     curl_close( $ch );
-    if ( $ok === false ) { sbh_fail( 'The remote request failed or exceeded the response limit.', 502 ); }
+    if ( $ok === false ) {
+        $reference = bin2hex( random_bytes( 6 ) );
+        error_log( 'SiteBridge transport ' . json_encode( array( 'reference' => $reference, 'host' => $host, 'path' => $p['path'] ?? '/', 'method' => $method, 'curl_errno' => $errno, 'http_status' => $status, 'elapsed_seconds' => round( $elapsed, 3 ), 'connect_seconds' => round( $connect_time, 3 ), 'response_bytes' => $size ) ) );
+        sbh_fail( sbh_transport_message( $errno, $size, $elapsed, $status ) . ' Reference: ' . $reference . '.', 502 );
+    }
     if ( $status === 401 ) { sbh_fail( 'WordPress did not accept SiteBridge authentication (HTTP 401). Update the installed SiteBridge plugin to 0.5.1 or newer for hosting header compatibility, then start a fresh connection. If it persists, check Application Password availability and hosting authentication logs.', 502 ); }
     if ( $status >= 300 && $status < 400 ) { sbh_fail( 'Remote endpoint redirected (HTTP ' . $status . '). Use its final HTTPS URL.', 502 ); }
     if ( $status === 403 || $status === 406 ) { sbh_fail( 'The remote site refused the request (HTTP ' . $status . '). Check its authentication, SiteBridge settings, and hosting firewall logs.', 502 ); }

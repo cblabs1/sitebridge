@@ -1,4 +1,6 @@
-# SiteBridge Hub 0.5.1 — native WordPress approval
+# SiteBridge Hub 0.5.2 — native WordPress approval
+
+Hub 0.5.2 distinguishes timeouts, failed connections, TLS errors, interrupted transfers and the 4 MB response limit. Failures include numeric cURL/HTTP codes and a reference matching sanitized PHP error-log details. Logs omit query strings, credentials, request headers and response bodies. This diagnostic update needs no plugin reinstall; WordPress plugin 0.5.1 remains current.
 
 Version 0.5.1 adds authentication header compatibility for CGI/shared hosting: the hub sends a SiteBridge fallback header alongside standard Basic authentication, and the plugin validates it using WordPress's Application Password authentication on SiteBridge REST routes only. It also recognizes Application Passwords authenticated before the plugin's observation hook. Update both the hub and WordPress plugin, then request a fresh link after a failed 0.5.0 attempt. No permissions, hashes or authentication checks are bypassed.
 
